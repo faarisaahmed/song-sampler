@@ -105,3 +105,26 @@ input[type="range"] { accent-color: var(--accent); }
 code { background: #2d2640; padding: 1px 5px; border-radius: 4px; color: var(--text); }
 footer { text-align: center; padding: 10px 20px 30px; }
 footer a { color: var(--muted); }
+
+.songmode { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.songmode h3 { margin: 0 0 6px; font-size: 16px; }
+.badge { font-size: 11px; font-weight: 600; background: #3b2f58; color: var(--accent); padding: 2px 7px; border-radius: 99px; vertical-align: middle; }
+#q { flex: 1; min-width: 200px; font: inherit; color: var(--text); background: #1a1626; border: 1px solid var(--line); border-radius: 9px; padding: 7px 12px; }
+.filebtn { color: var(--muted); font-size: 13px; cursor: pointer; text-decoration: underline; }
+.results { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 12px; }
+.result { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 10px; background: #2a2439; border: 1px solid transparent; cursor: pointer; text-align: left; }
+.result:hover { border-color: var(--accent); }
+.result img { width: 48px; height: 48px; border-radius: 6px; flex: none; }
+.result .t { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result .a { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result > div { min-width: 0; }
+.status { margin-top: 12px; font-size: 14px; }
+.status.err { color: #ff8a8a; }
+.track .vol { width: 110px; }
+.track .volval { width: 38px; text-align: right; font-size: 12px; color: var(--muted); }
+.track { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
+.tname { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.mixrows { margin-top: 6px; }
+.mixrows .track { background: #251f36; }
+.progress div.indet { background: linear-gradient(90deg, #2d2640, var(--accent), #2d2640); background-size: 200% 100%; animation: indet 1.2s linear infinite; }
+@keyframes indet { from { background-position: 100% 0; } to { background-position: -100% 0; } }

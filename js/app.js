@@ -2,6 +2,7 @@ import { parseMidi } from './midi.js';
 import { analyzeVoice, renderNote, midiToFreq, naturalLength } from './psola.js';
 import { assignSyllables, topLine, nextWildLetter } from './syllables.js';
 import { demoSong } from './demo.js';
+import { searchSongs, processSong } from './songmode.js';
 
 const $ = (id) => document.getElementById(id);
 const COLORS = { o: '#6cc6ff', i: '#ff7ab8', a: '#ffd35c' };
@@ -16,9 +17,21 @@ let song = null; // { tracks, duration, secPerBeatAt, bpm, name }
 let enabled = []; // per-track bool
 let sung = []; // notes with syllables (all enabled tracks)
 let lyricWords = []; // [{ time, end, el }]
-let mix = null; // AudioBuffer
+let rendered = null; // Map track index -> AudioBuffer (OIIA voice for that track)
 let dirty = true;
-let source = null, startedAt = 0, startOffset = 0, raf = 0;
+let playing = null; // { sources, gains } while playing
+let startedAt = 0, startOffset = 0, raf = 0;
+// mixer: per-track volume, plus background / original vocals in song mode
+let trackVol = [], bgVol = 1, origVol = 0;
+
+// master bus with a limiter so loud mixes don't clip
+const HEADROOM = 0.8; // commercial instrumentals already peak near 0 dBFS
+const master = ctx.createGain();
+const limiter = ctx.createDynamicsCompressor();
+limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20;
+limiter.attack.value = 0.003; limiter.release.value = 0.2;
+master.gain.value = HEADROOM;
+master.connect(limiter).connect(ctx.destination);
 
 async function loadVoices() {
   const out = {};
@@ -80,11 +93,27 @@ function setSong(s) {
   song = s;
   enabled = s.tracks.map((t) => !t.isDrums);
   if (!enabled.some(Boolean)) enabled[0] = true;
-  $('songInfo').textContent = `${s.name} · ${fmt(s.duration)} · ${s.tracks.length} track${s.tracks.length > 1 ? 's' : ''} · ${Math.round(s.bpm)} bpm`;
+  trackVol = s.tracks.map(() => 1);
+  bgVol = 1; origVol = 0;
+  $('songInfo').textContent = s.audio
+    ? `${s.name} · ${fmt(s.duration)} · song mode · ${s.tracks[0].notes.length} sung notes found`
+    : `${s.name} · ${fmt(s.duration)} · ${s.tracks.length} track${s.tracks.length > 1 ? 's' : ''} · ${Math.round(s.bpm)} bpm`;
   renderTrackList();
   $('tracksCard').classList.remove('hidden');
   $('playCard').classList.remove('hidden');
   invalidate();
+}
+
+function volumeControl(value, onChange) {
+  const frag = document.createDocumentFragment();
+  const range = document.createElement('input');
+  range.type = 'range'; range.className = 'vol'; range.min = 0; range.max = 150; range.value = Math.round(value * 100);
+  range.title = 'Volume';
+  const val = document.createElement('span');
+  val.className = 'volval mono'; val.textContent = `${range.value}%`;
+  range.addEventListener('input', () => { val.textContent = `${range.value}%`; onChange(range.value / 100); });
+  frag.append(range, val);
+  return frag;
 }
 
 function renderTrackList() {
@@ -92,23 +121,47 @@ function renderTrackList() {
   box.innerHTML = '';
   song.tracks.forEach((t, i) => {
     const lo = Math.min(...t.notes.map((n) => n.midi)), hi = Math.max(...t.notes.map((n) => n.midi));
-    const row = document.createElement('label');
+    const row = document.createElement('div');
     row.className = 'track';
     row.innerHTML = `
-      <input type="checkbox" ${enabled[i] ? 'checked' : ''} />
-      <span class="name"></span>
-      <span class="meta">${t.isDrums ? 'Drums' : GM_FAMILIES[t.program >> 3]} · ${t.notes.length} notes · ${noteName(lo)}–${noteName(hi)}</span>
-      <button type="button" title="Hear only this track">solo</button>`;
+      <label class="tname"><input type="checkbox" ${enabled[i] ? 'checked' : ''} /><span class="name"></span></label>
+      <span class="meta">${t.label || (t.isDrums ? 'Drums' : GM_FAMILIES[t.program >> 3])} · ${t.notes.length} notes · ${noteName(lo)}–${noteName(hi)}</span>`;
     row.querySelector('.name').textContent = t.name;
     row.querySelector('input').addEventListener('change', (e) => { enabled[i] = e.target.checked; invalidate(); });
-    row.querySelector('button').addEventListener('click', (e) => {
-      e.preventDefault();
+    row.appendChild(volumeControl(trackVol[i], (v) => { trackVol[i] = v; setGain(`t${i}`, v); }));
+    const solo = document.createElement('button');
+    solo.type = 'button'; solo.title = 'Hear only this track'; solo.textContent = 'solo';
+    solo.addEventListener('click', () => {
       enabled = enabled.map((_, j) => j === i);
-      box.querySelectorAll('input').forEach((cb, j) => (cb.checked = enabled[j]));
+      box.querySelectorAll('.tname input').forEach((cb, j) => (cb.checked = enabled[j]));
       invalidate();
     });
+    row.appendChild(solo);
     box.appendChild(row);
   });
+
+  // song mode: the real instrumental and the original singer
+  const mix = $('mixRows');
+  mix.innerHTML = '';
+  mix.classList.toggle('hidden', !song.audio);
+  if (!song.audio) return;
+  const addRow = (name, meta, value, key, set) => {
+    const row = document.createElement('div');
+    row.className = 'track';
+    row.innerHTML = `<span class="tname"><span class="name"></span></span><span class="meta"></span>`;
+    row.querySelector('.name').textContent = name;
+    row.querySelector('.meta').textContent = meta;
+    row.appendChild(volumeControl(value, (v) => { set(v); setGain(key, v); }));
+    row.appendChild(document.createElement('span'));
+    mix.appendChild(row);
+  };
+  addRow('🎵 Background music', 'instrumental from the AI split', bgVol, 'bg', (v) => (bgVol = v));
+  addRow('🗣 Original vocals', 'turn up to compare', origVol, 'orig', (v) => (origVol = v));
+}
+
+function setGain(key, v) {
+  const g = playing?.gains[key];
+  if (g) g.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
 }
 
 ['gap', 'chords', 'vibrato', 'range'].forEach((id) => $(id).addEventListener('input', () => {
@@ -132,7 +185,7 @@ const lengthMode = () => document.querySelector('input[name="length"]:checked').
 function invalidate() {
   stop();
   dirty = true;
-  mix = null;
+  rendered = null;
   $('wavBtn').disabled = true;
   computeSyllables();
   drawRoll();
@@ -291,7 +344,10 @@ async function renderMix() {
   await voicesReady;
   const vib = $('vibrato').checked;
   const total = Math.ceil((song.duration + 0.5) * SR);
-  const out = new Float32Array(total);
+  // one buffer per track, written in place
+  const bufs = new Map();
+  for (const n of sung) if (!bufs.has(n.track)) bufs.set(n.track, ctx.createBuffer(1, total, SR));
+  const data = new Map([...bufs].map(([k, b]) => [k, b.getChannelData(0)]));
   const cache = new Map();
   $('progress').classList.remove('hidden');
   for (let k = 0; k < sung.length; k++) {
@@ -303,6 +359,7 @@ async function renderMix() {
       buf = renderNote(voices[n.sample], midiToFreq(n.midi), dur, { vibrato: vib });
       cache.set(key, buf);
     }
+    const out = data.get(n.track);
     const off = Math.round(n.time * SR);
     const gain = 0.35 + 0.65 * n.velocity;
     const len = Math.min(buf.length, total - off);
@@ -312,19 +369,44 @@ async function renderMix() {
       await new Promise((r) => setTimeout(r, 0));
     }
   }
+  // shared normalization so the tracks keep their balance
+  const arrays = [...data.values()];
   let peak = 0;
-  for (let i = 0; i < total; i++) peak = Math.max(peak, Math.abs(out[i]));
+  for (let i = 0; i < total; i++) {
+    let v = 0;
+    for (const a of arrays) v += a[i];
+    peak = Math.max(peak, Math.abs(v));
+  }
   const g = peak > 0 ? 0.89 / peak : 1;
-  for (let i = 0; i < total; i++) out[i] *= g;
+  for (const a of arrays) for (let i = 0; i < total; i++) a[i] *= g;
   $('progress').classList.add('hidden');
-  const ab = ctx.createBuffer(1, total, SR);
-  ab.copyToChannel(out, 0);
-  return ab;
+  return bufs;
+}
+
+// Build the playback graph on any context (live or offline for WAV export).
+function buildGraph(ac, dest, offset, when) {
+  const sources = [], gains = {};
+  const add = (buffer, key, vol) => {
+    const src = ac.createBufferSource();
+    src.buffer = buffer;
+    const g = ac.createGain();
+    g.gain.value = vol;
+    src.connect(g).connect(dest);
+    if (offset < buffer.duration) src.start(when, offset);
+    sources.push(src);
+    gains[key] = g;
+  };
+  for (const [ti, buf] of rendered) add(buf, `t${ti}`, trackVol[ti]);
+  if (song.audio) {
+    add(song.audio.instrumental, 'bg', bgVol);
+    add(song.audio.vocals, 'orig', origVol);
+  }
+  return { sources, gains };
 }
 
 // ---------- transport ----------
 
-$('playBtn').addEventListener('click', () => play(source ? null : startOffset));
+$('playBtn').addEventListener('click', () => play(playing ? null : startOffset));
 $('stopBtn').addEventListener('click', () => { stop(); startOffset = 0; drawRoll(0); highlight(-1); });
 $('wavBtn').addEventListener('click', downloadWav);
 
@@ -332,21 +414,17 @@ async function play(offset) {
   if (offset === null) { stop(); return; } // toggle
   await ctx.resume();
   stop();
-  if (dirty || !mix) {
+  if (dirty || !rendered) {
     $('playBtn').disabled = true;
     $('playBtn').textContent = 'Rendering…';
-    mix = await renderMix();
+    rendered = await renderMix();
     dirty = false;
     $('playBtn').disabled = false;
     $('wavBtn').disabled = false;
   }
-  source = ctx.createBufferSource();
-  source.buffer = mix;
-  source.connect(ctx.destination);
   startOffset = offset;
-  startedAt = ctx.currentTime;
-  source.start(0, offset);
-  source.onended = () => { if (source && ctx.currentTime - startedAt + startOffset >= mix.duration - 0.05) { stop(); startOffset = 0; } };
+  startedAt = ctx.currentTime + 0.05;
+  playing = buildGraph(ctx, master, offset, startedAt);
   $('playBtn').textContent = '❚❚ Pause';
   $('stopBtn').disabled = false;
   $('cat').classList.add('spin');
@@ -354,11 +432,10 @@ async function play(offset) {
 }
 
 function stop() {
-  if (source) {
-    const pos = ctx.currentTime - startedAt + startOffset;
-    source.onended = null;
-    try { source.stop(); } catch {}
-    source = null;
+  if (playing) {
+    const pos = Math.max(0, ctx.currentTime - startedAt) + startOffset;
+    for (const src of playing.sources) { try { src.stop(); } catch {} }
+    playing = null;
     startOffset = Math.min(pos, song?.duration ?? 0);
   }
   cancelAnimationFrame(raf);
@@ -367,8 +444,9 @@ function stop() {
 }
 
 function tick() {
-  if (!source) return;
-  const t = ctx.currentTime - startedAt + startOffset;
+  if (!playing) return;
+  const t = Math.max(0, ctx.currentTime - startedAt) + startOffset;
+  if (t >= song.duration + 0.3) { stop(); startOffset = 0; drawRoll(0); highlight(-1); return; }
   $('time').textContent = `${fmt(t)} / ${fmt(song.duration)}`;
   drawRoll(t);
   const wrap = $('rollWrap');
@@ -393,21 +471,36 @@ function highlight(t) {
   }
 }
 
-function downloadWav() {
-  if (!mix) return;
-  const x = mix.getChannelData(0);
-  const b = new DataView(new ArrayBuffer(44 + x.length * 2));
-  const w = (o, s) => [...s].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
-  w(0, 'RIFF'); b.setUint32(4, 36 + x.length * 2, true); w(8, 'WAVEfmt ');
-  b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
-  b.setUint32(24, SR, true); b.setUint32(28, SR * 2, true); b.setUint16(32, 2, true); b.setUint16(34, 16, true);
-  w(36, 'data'); b.setUint32(40, x.length * 2, true);
-  for (let i = 0; i < x.length; i++) b.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 32767, true);
+async function downloadWav() {
+  if (!rendered) return;
+  $('wavBtn').disabled = true;
+  const rate = 44100;
+  const off = new OfflineAudioContext(2, Math.ceil((song.duration + 0.5) * rate), rate);
+  const lim = off.createDynamicsCompressor();
+  lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.003; lim.release.value = 0.2;
+  lim.connect(off.destination);
+  const bus = off.createGain();
+  bus.gain.value = HEADROOM;
+  bus.connect(lim);
+  buildGraph(off, bus, 0, 0);
+  const out = await off.startRendering();
+  const L = out.getChannelData(0), R = out.getChannelData(1), n = L.length;
+  const b = new DataView(new ArrayBuffer(44 + n * 4));
+  const w = (o, str) => [...str].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); b.setUint32(4, 36 + n * 4, true); w(8, 'WAVEfmt ');
+  b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 2, true);
+  b.setUint32(24, rate, true); b.setUint32(28, rate * 4, true); b.setUint16(32, 4, true); b.setUint16(34, 16, true);
+  w(36, 'data'); b.setUint32(40, n * 4, true);
+  for (let i = 0; i < n; i++) {
+    b.setInt16(44 + i * 4, Math.max(-1, Math.min(1, L[i])) * 32767, true);
+    b.setInt16(46 + i * 4, Math.max(-1, Math.min(1, R[i])) * 32767, true);
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
-  a.download = `${(song.name || 'song').replace(/\.midi?$/i, '')}-oiia.wav`;
+  a.download = `${(song.name || 'song').replace(/\.midi?$/i, '').replace(/[\\/:*?"<>|]/g, '')}-oiia.wav`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $('wavBtn').disabled = false;
 }
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -469,7 +562,7 @@ async function liveOn(midi) {
   const gain = ctx.createGain();
   gain.gain.value = 0.8;
   src.buffer = buf;
-  src.connect(gain).connect(ctx.destination);
+  src.connect(gain).connect(master);
   src.start();
   liveVoices.set(midi, { src, gain, held });
   const el = document.querySelector(`.key[data-midi="${midi}"]`);
@@ -502,5 +595,72 @@ window.addEventListener('keyup', (e) => {
   const i = KEYMAP.indexOf(e.key.toLowerCase());
   if (i >= 0) liveOff(LIVE_LOW + i);
 });
+
+// ---------- song mode (experimental) ----------
+
+let smBusy = false;
+$('searchForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = $('q').value.trim();
+  if (!q) return;
+  const box = $('results');
+  box.textContent = 'Searching…';
+  try {
+    const results = await searchSongs(q);
+    box.innerHTML = '';
+    if (!results.length) { box.textContent = 'No songs found.'; return; }
+    for (const r of results) {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'result';
+      btn.innerHTML = '<img alt="" /><div><div class="t"></div><div class="a"></div></div>';
+      btn.querySelector('img').src = r.art;
+      btn.querySelector('.t').textContent = r.title;
+      btn.querySelector('.a').textContent = r.artist;
+      btn.addEventListener('click', () => runSongMode({ url: r.preview }, `${r.title} – ${r.artist}`));
+      box.appendChild(btn);
+    }
+  } catch (err) {
+    box.textContent = `Search failed: ${err.message}`;
+  }
+});
+$('audioFile').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (f) runSongMode({ file: f }, f.name.replace(/\.[^.]+$/, ''));
+  e.target.value = '';
+});
+
+async function runSongMode(source, name) {
+  if (smBusy) return;
+  smBusy = true;
+  stop();
+  const st = $('smStatus');
+  st.classList.remove('hidden', 'err');
+  const setStatus = (text, p) => {
+    $('smText').textContent = text;
+    $('smBar').style.width = p == null ? '100%' : `${Math.round(p * 100)}%`;
+    $('smBar').classList.toggle('indet', p == null);
+  };
+  try {
+    const r = await processSong(source, setStatus);
+    if (!r.notes.length) throw new Error("couldn't find any singing in this song");
+    const mk = ([l, rr]) => { const b = ctx.createBuffer(2, l.length, r.sampleRate); b.copyToChannel(l, 0); b.copyToChannel(rr, 1); return b; };
+    const instrumental = mk(r.instrumental), vocals = mk(r.vocals);
+    setSong({
+      name,
+      tracks: [{ name: 'Lead vocal → OIIA', label: 'Sung melody', notes: r.notes, channel: 0, isDrums: false, program: 0 }],
+      duration: instrumental.duration,
+      bpm: 120,
+      secPerBeatAt: () => 0.5,
+      audio: { instrumental, vocals },
+    });
+    setStatus(`Done! Split on ${r.backend === 'webgpu' ? 'your GPU (WebGPU)' : 'your CPU (WebAssembly)'}. Hit play below.`, 1);
+    $('smBar').classList.remove('indet');
+  } catch (err) {
+    st.classList.add('err');
+    $('smText').textContent = `Song mode failed: ${err.message}`;
+    $('smBar').style.width = '0';
+  }
+  smBusy = false;
+}
 
 buildKeys();
