@@ -1,6 +1,6 @@
 import { parseMidi } from './midi.js';
 import { analyzeVoice, renderNote, midiToFreq, naturalLength } from './psola.js';
-import { assignSyllables, topLine } from './syllables.js';
+import { assignSyllables, topLine, nextWildLetter } from './syllables.js';
 import { demoSong } from './demo.js';
 
 const $ = (id) => document.getElementById(id);
@@ -76,6 +76,7 @@ const noteName = (m) => ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', '
 function setSong(s) {
   stop();
   startOffset = 0;
+  seed = 0;
   song = s;
   enabled = s.tracks.map((t) => !t.isDrums);
   if (!enabled.some(Boolean)) enabled[0] = true;
@@ -114,7 +115,16 @@ function renderTrackList() {
   $('gapVal').textContent = $('gap').value;
   if (song) invalidate();
 }));
-document.querySelectorAll('input[name="length"]').forEach((r) => r.addEventListener('change', () => song && invalidate()));
+document.querySelectorAll('input[name="length"], input[name="style"]').forEach((r) => r.addEventListener('change', () => {
+  $('reroll').disabled = styleMode() !== 'wild';
+  if (song) invalidate();
+}));
+const styleMode = () => document.querySelector('input[name="style"]:checked').value;
+let seed = 0; // 0 = the song's own default take
+$('reroll').addEventListener('click', () => {
+  seed = (Math.random() * 2 ** 31) | 0;
+  if (song) invalidate();
+});
 const lengthMode = () => document.querySelector('input[name="length"]:checked').value;
 
 // ---------- syllables + preview ----------
@@ -133,7 +143,7 @@ function invalidate() {
 
 function computeSyllables() {
   sung = [];
-  const opts = { phraseGapBeats: parseFloat($('gap').value) };
+  const opts = { phraseGapBeats: parseFloat($('gap').value), style: styleMode(), seed };
   song.tracks.forEach((t, ti) => {
     if (!enabled[ti]) return;
     const notes = $('chords').value === 'top' ? topLine(t.notes) : t.notes;
@@ -407,7 +417,7 @@ const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(
 const KEYMAP = 'awsedftgyhujk';
 const LIVE_LOW = 60; // C4
 const LIVE_CYCLE = ['o', 'i', 'i2', 'a'];
-let liveStep = 0, lastPress = 0;
+let liveStep = 0, lastPress = 0, liveHistory = [];
 const liveVoices = new Map();
 
 function buildKeys() {
@@ -438,9 +448,17 @@ async function liveOn(midi) {
   await ctx.resume();
   await voicesReady;
   const now = performance.now();
-  if (now - lastPress > 1000) liveStep = 0;
+  if (now - lastPress > 1000) { liveStep = 0; liveHistory = []; }
   lastPress = now;
-  const sample = LIVE_CYCLE[liveStep % 4];
+  let sample;
+  if (styleMode() === 'wild') {
+    const l = nextWildLetter(liveHistory);
+    const prevI = liveHistory.length && liveHistory[liveHistory.length - 1] === 'i';
+    liveHistory.push(l);
+    sample = l === 'i' ? (prevI && liveStep % 2 ? 'i2' : 'i') : l;
+  } else {
+    sample = LIVE_CYCLE[liveStep % 4];
+  }
   liveStep++;
   // Held: sustain while the key is down. Normal: the syllable at its natural length.
   const held = lengthMode() === 'held';

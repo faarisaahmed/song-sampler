@@ -11,8 +11,9 @@ Turn any MIDI file into an OIIA cat song, right in your browser.
 - **Syllables** (`js/syllables.js`):
   1. Notes that start together (chords) count as one syllable.
   2. The song is cut into passages at rests (≥ 0.5 beat by default). Passages shorter than 3 notes merge with a nearby one.
-  3. Each passage is sung as words that always start `o i` and end `a`: `oia` (3), `oiia` (4), `oiiia` (5).
-  4. A dynamic-programming pass picks the split that puts the drawn-out `a` on long notes and before breaks, so the same song always gets the same lyrics.
+  3. Every passage starts `o i` and ends `a`.
+  - **Wild** (default): the middle comes from a Markov chain learned from real OIIA strings (`oiiaioiiiai`, `oiiaoiia`, ...). The chain is conditioned on finishing with `a`, long notes lean toward `a`, and it's seeded from the song so it's the same on every play (🎲 rerolls).
+  - **Classic**: tidy words `oia` / `oiia` / `oiiia`, split by dynamic programming so each `a` lands on a long note.
 - **Length**: *Held* stretches syllables across the whole note. *Normal* uses the cat's natural syllable length.
 - **Octave range**: optionally fold every note into 1–3 octaves, centered on the cat's natural pitch (about D#4).
 - **MIDI**: a small built-in parser (`js/midi.js`) with tempo map support. No dependencies.

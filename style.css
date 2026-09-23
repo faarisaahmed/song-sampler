@@ -79,7 +79,7 @@ input[type="range"] { accent-color: var(--accent); }
   margin-top: 14px; max-height: 96px; overflow-y: auto; font-family: ui-monospace, Menlo, monospace;
   font-size: 14px; line-height: 1.8; color: var(--muted); word-spacing: 2px;
 }
-.lyrics .w { padding: 1px 3px; border-radius: 4px; }
+.lyrics .w { padding: 1px 3px; border-radius: 4px; word-break: break-all; }
 .lyrics .w.on { background: var(--accent); color: #2a1030; }
 .lyrics .sep { color: var(--line); padding: 0 4px; }
 

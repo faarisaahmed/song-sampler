@@ -1,21 +1,28 @@
 // O-I-A syllable assignment.
 //
-// The meme itself goes "o-i-i-a", and people shorten it to "o-i-a" when it's
-// sung fast. The rules:
+// The rules (both styles):
 //
 //  1. Notes that start together (a chord) count as one event and share a syllable.
 //  2. Events are split into PASSAGES wherever there's a rest of at least
 //     `phraseGapBeats` beats. Passages shorter than 3 events join the
 //     neighbor with the smaller gap if that gap is under `mergeBeats` beats.
-//  3. Every passage is split into WORDS. A word always starts "o i" and ends "a":
-//         3 notes -> o i a        4 notes -> o i i a        5 notes -> o i i i a
-//     Every length from 3 up can be built from these words (3 and 4 cover
-//     everything except 5, which gets its own word).
-//  4. The split is chosen by dynamic programming, and it's deterministic.
-//     Each word scores points when its final "a" lands on a long note or right
-//     before a small break, since that's where the drawn-out "aaa" sounds right.
-//     The full "oiia" gets a small bonus. The best-scoring split wins.
-//  5. Passages of 1 or 2 events that couldn't be merged are sung "a" or "o a".
+//  3. Every passage starts "o i" and ends "a". Passages of 1 or 2 events that
+//     couldn't be merged are sung "a" or "o a".
+//
+// CLASSIC style splits each passage into the words oia / oiia / oiiia,
+// chosen by dynamic programming so each word's "a" lands on long notes.
+//
+// WILD style fills in the middle of each passage from a Markov chain built
+// from real OIIA strings (see CORPUS), so you get things like "oiiaioiiiaia".
+//  - Rules taken from the corpus: "o" is always followed by i or o, "a" by i
+//    or o, and "a" always comes right after an "i". Runs are capped at ooo and iiii.
+//  - The chain is conditioned on the passage ending in "a" (a backward pass
+//    works out, for each spot, how likely each letter is to still reach a
+//    final "a"), so every generated passage follows the rules exactly.
+//  - Long notes and notes right before a small break lean toward "a".
+//  - Randomness comes from a PRNG seeded by the notes themselves plus a
+//    user-rerollable seed, so the same song always gets the same lyrics
+//    until you hit reroll.
 //
 // Two "i"s in a row use two different recordings (i, i2) so they don't sound copy-pasted.
 
@@ -99,6 +106,110 @@ export function planWords(passage, secPerBeatAt) {
   return words;
 }
 
+// ---------- wild style ----------
+
+// Real sequences: the spinning-cat song, the plain loop, and user-given examples.
+export const CORPUS = ['oiiaioiiiai', 'oiiaoiia', 'oiaioia', 'oiaooiaio', 'oiiaioiiiaioiia'];
+
+// letter -> letter probabilities counted from CORPUS (no o->a, no a->a)
+const TRANS = (() => {
+  const c = { o: { o: 0, i: 0, a: 0 }, i: { o: 0, i: 0, a: 0 }, a: { o: 0, i: 0, a: 0 } };
+  for (const w of CORPUS) for (let k = 1; k < w.length; k++) c[w[k - 1]][w[k]]++;
+  const p = {};
+  for (const [from, row] of Object.entries(c)) {
+    const tot = row.o + row.i + row.a;
+    p[from] = { o: row.o / tot, i: row.i / tot, a: row.a / tot };
+  }
+  return p;
+})();
+const MAX_RUN = { o: 3, i: 4, a: 1 };
+// states are (letter, run length)
+const STATES = [];
+for (const l of ['o', 'i', 'a']) for (let r = 1; r <= MAX_RUN[l]; r++) STATES.push({ l, r });
+const IDX = (l, r) => STATES.findIndex((st) => st.l === l && st.r === r);
+const stepProb = (s, t) => {
+  if (t.l === s.l ? t.r !== s.r + 1 : t.r !== 1) return 0;
+  return TRANS[s.l][t.l];
+};
+
+// Next letter for open-ended playing (live keyboard): same chain, no fixed end.
+export function nextWildLetter(history, rand = Math.random) {
+  if (history.length === 0) return 'o';
+  if (history.length === 1) return 'i';
+  const last = history[history.length - 1];
+  let run = 0;
+  for (let k = history.length - 1; k >= 0 && history[k] === last; k--) run++;
+  const opts = ['o', 'i', 'a'].filter((l) => l !== last || run < MAX_RUN[l]);
+  const tot = opts.reduce((acc, l) => acc + TRANS[last][l], 0);
+  let r = rand() * tot;
+  for (const l of opts) if ((r -= TRANS[last][l]) <= 0) return l;
+  return opts[opts.length - 1];
+}
+
+function mulberry32(a) {
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashNotes(notes) {
+  let h = 2166136261;
+  for (const n of notes) {
+    h = Math.imul(h ^ n.midi, 16777619);
+    h = Math.imul(h ^ Math.round(n.time * 1000), 16777619);
+  }
+  return h >>> 0;
+}
+
+function wildPassage(passage, secPerBeatAt, rand) {
+  const n = passage.length;
+  if (n < 3) return wordSyllables(n);
+  // how much each event "wants" to be an a
+  const aWeight = passage.map((e, k) => {
+    const beat = secPerBeatAt(e.time);
+    const len = Math.min(e.end - e.time, 2 * beat) / beat;
+    const next = passage[k + 1];
+    const gap = next ? Math.max(0, Math.min(next.time - e.end, beat)) / beat : 0;
+    return 0.4 + 0.8 * len + 1.5 * gap;
+  });
+  const w = (k, st) => (st.l === 'a' ? aWeight[k] : 1);
+  const S = STATES.length;
+  // backward pass: beta[k][s] ~ chance of finishing on "a" from state s at position k
+  const beta = Array.from({ length: n }, () => new Float64Array(S));
+  beta[n - 1][IDX('a', 1)] = 1;
+  for (let k = n - 2; k >= 1; k--) {
+    let mx = 0;
+    for (let si = 0; si < S; si++) {
+      let v = 0;
+      for (let ti = 0; ti < S; ti++) {
+        const p = stepProb(STATES[si], STATES[ti]);
+        if (p) v += p * (k + 1 === n - 1 ? 1 : w(k + 1, STATES[ti])) * beta[k + 1][ti];
+      }
+      beta[k][si] = v;
+      mx = Math.max(mx, v);
+    }
+    if (mx > 0) for (let si = 0; si < S; si++) beta[k][si] /= mx; // avoid underflow
+  }
+  // forward sampling from "o i"
+  const out = ['o', 'i'];
+  let cur = IDX('i', 1);
+  for (let k = 2; k < n; k++) {
+    const probs = STATES.map((st, ti) => stepProb(STATES[cur], st) * (k === n - 1 ? 1 : w(k, st)) * beta[k][ti]);
+    const tot = probs.reduce((a, b) => a + b, 0);
+    let r = rand() * tot, ti = 0;
+    while (ti < S - 1 && (r -= probs[ti]) > 0) ti++;
+    while (!probs[ti]) ti--; // guard against rounding at the end
+    cur = ti;
+    out.push(STATES[ti].l);
+  }
+  return out;
+}
+
+// ---------- shared ----------
+
 function wordSyllables(len) {
   if (len === 1) return ['a'];
   if (len === 2) return ['o', 'a'];
@@ -113,21 +224,25 @@ function wordSyllables(len) {
 export function assignSyllables(notes, secPerBeatAt, opts = {}) {
   const events = groupEvents(notes, opts.onsetTol);
   const passages = splitPassages(events, secPerBeatAt, opts);
+  const wild = opts.style === 'wild';
+  const rand = mulberry32(hashNotes(notes) ^ (opts.seed ?? 0));
   const out = [];
   let wordIdx = 0, eventIdx = 0;
   passages.forEach((passage, pi) => {
-    const words = planWords(passage, secPerBeatAt);
+    // wild: the whole passage is one word; classic: oia / oiia / oiiia words
+    const words = wild ? [wildPassage(passage, secPerBeatAt, rand)]
+      : planWords(passage, secPerBeatAt).map(wordSyllables);
     let i = 0;
-    for (const w of words) {
-      const syls = wordSyllables(w);
-      let iCount = 0;
+    for (const syls of words) {
+      let iRun = 0;
       syls.forEach((syl, j) => {
         const ev = passage[i + j];
-        const sample = syl === 'i' ? (iCount++ % 2 ? 'i2' : 'i') : syl;
+        iRun = syl === 'i' ? iRun + 1 : 0;
+        const sample = syl === 'i' ? (iRun % 2 ? 'i' : 'i2') : syl;
         for (const n of ev.notes) out.push({ ...n, syl, sample, passage: pi, word: wordIdx, event: eventIdx, wordStart: j === 0 });
         eventIdx++;
       });
-      i += w;
+      i += syls.length;
       wordIdx++;
     }
   });
