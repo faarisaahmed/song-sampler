@@ -146,7 +146,7 @@ function computeSyllables() {
   const oct = parseInt($('range').value, 10);
   $('rangeVal').textContent = '';
   if (oct && sung.length) {
-    const lo = pickWindow(sung, oct), hi = lo + 12 * oct;
+    const lo = pickWindow(oct), hi = lo + 12 * oct;
     for (const n of sung) {
       while (n.midi < lo) n.midi += 12;
       while (n.midi >= hi) n.midi -= 12;
@@ -173,18 +173,16 @@ function computeSyllables() {
 const FALLBACK_LEN = { o: 0.13, i: 0.075, i2: 0.075, a: 0.18 };
 const natLen = (sample) => (voices ? naturalLength(voices[sample]) : FALLBACK_LEN[sample]);
 
-// Place the window where it already holds the most notes (so the melody
-// mostly keeps its pitch) but never lower than C3, so deep notes move up.
-// Ties go to the window closest to the cat's own voice (around E4).
-function pickWindow(notes, oct) {
-  let best = 48, bestScore = -Infinity;
-  for (let lo = 48; lo <= 72; lo++) {
-    let inside = 0;
-    for (const n of notes) if (n.midi >= lo && n.midi < lo + 12 * oct) inside++;
-    const score = inside - 0.001 * Math.abs(lo + 6 * oct - 64);
-    if (score > bestScore) { bestScore = score; best = lo; }
+// Center the window on the cat's own voice (the pitch the o/i/a samples were
+// recorded at, about D#4). Notes near that pitch need the least shifting, so
+// they sound the most natural, and nothing ends up way up high.
+function pickWindow(oct) {
+  let center = 63;
+  if (voices) {
+    const ms = ['o', 'i', 'a'].map((k) => 69 + 12 * Math.log2(voices[k].f0 / 440));
+    center = ms.reduce((a, b) => a + b, 0) / ms.length;
   }
-  return best;
+  return Math.round(center - 6 * oct);
 }
 
 function renderLyrics() {

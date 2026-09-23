@@ -14,7 +14,7 @@ Turn any MIDI file into an OIIA cat song, right in your browser.
   3. Each passage is sung as words that always start `o i` and end `a`: `oia` (3), `oiia` (4), `oiiia` (5).
   4. A dynamic-programming pass picks the split that puts the drawn-out `a` on long notes and before breaks, so the same song always gets the same lyrics.
 - **Length**: *Held* stretches syllables across the whole note. *Normal* uses the cat's natural syllable length.
-- **Octave range**: optionally fold every note into 1–3 octaves, placed automatically (never starting below C3).
+- **Octave range**: optionally fold every note into 1–3 octaves, centered on the cat's natural pitch (about D#4).
 - **MIDI**: a small built-in parser (`js/midi.js`) with tempo map support. No dependencies.
 
 Run it locally with any static server, e.g. `python3 -m http.server`.
