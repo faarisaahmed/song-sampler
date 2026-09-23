@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OIIA Song Sampler</title>
+  <meta name="description" content="Turn any MIDI file into an OIIA cat song." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐈</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="cat" id="cat" aria-hidden="true">🐈</div>
+    <div>
+      <h1>OIIA Song Sampler</h1>
+      <p class="sub">Drop in any MIDI and the spinning cat sings it: o · i · i · a</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="card" id="loadCard">
+      <h2>1 · Pick a song</h2>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden />
+        <strong>Drop a .mid file here</strong> or click to choose one
+      </label>
+      <div class="row">
+        <button id="demoBtn" class="ghost">Try the demo (Ode to Joy)</button>
+        <span id="songInfo" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="card hidden" id="tracksCard">
+      <h2>2 · Choose tracks</h2>
+      <div id="tracks" class="tracks"></div>
+      <div class="options">
+        <label title="A rest this long (or longer) starts a new passage. Every passage starts with o-i and ends with a.">
+          Passage break at rests ≥
+          <input type="range" id="gap" min="0.25" max="2" step="0.25" value="0.5" />
+          <span id="gapVal">0.5</span> beats
+        </label>
+        <label>
+          Chords
+          <select id="chords">
+            <option value="all">sing every note</option>
+            <option value="top">top note only</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="vibrato" checked /> Vibrato on long notes</label>
+      </div>
+    </section>
+
+    <section class="card hidden" id="playCard">
+      <h2>3 · Listen</h2>
+      <div class="row">
+        <button id="playBtn" class="primary" disabled>▶ Play</button>
+        <button id="stopBtn" disabled>■ Stop</button>
+        <button id="wavBtn" disabled>⬇ Download WAV</button>
+        <span id="time" class="muted mono">0:00 / 0:00</span>
+      </div>
+      <div class="progress hidden" id="progress"><div id="progressBar"></div></div>
+      <div class="lyrics" id="lyrics"></div>
+      <div class="roll-wrap" id="rollWrap"><canvas id="roll" height="240"></canvas></div>
+      <p class="legend">
+        <span class="sw o"></span>o <span class="sw i"></span>i <span class="sw a"></span>a
+        <span class="muted">· click the roll to jump to a spot</span>
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Play it live</h2>
+      <p class="muted small">Click the keys or use your keyboard (A W S E D F T G Y H U J K). Your presses go o → i → i → a over and over, and pausing for a second starts again at o.</p>
+      <div class="keys" id="keys"></div>
+    </section>
+
+    <section class="card small muted" id="howCard">
+      <h2>How it works</h2>
+      <p><b>Syllables.</b> Notes played together count as one syllable. The song is cut into <i>passages</i> at rests, and each passage is sung as words that always start with <b>o&nbsp;i</b> and end with <b>a</b>: <code>oia</code> (3 notes), <code>oiia</code> (4), <code>oiiia</code> (5). Every length from 3 up can be built from those. When there's a choice, the split that puts the drawn-out "aaa" on long notes and right before breaks wins, so the same song always gets the same lyrics.</p>
+      <p><b>Pitch.</b> The three sounds come from the original OIIA cat clip. Each note is made with PSOLA pitch shifting, which rebuilds the sound one vocal cycle at a time. Pitch, length and vowel sound are all set separately, so low notes don't slow down or get muddy and high notes don't turn into squeaky chipmunks. Every note is also matched to the same loudness.</p>
+    </section>
+  </main>
+
+  <footer class="muted small">Made for fun. The OIIA sound comes from the spinning-cat meme.</footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
