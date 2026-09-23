@@ -1,8 +1,10 @@
 // Web Worker: downloads + caches the separation model, runs it (WebGPU when
 // available, WebAssembly otherwise), transcribes the vocal melody, and sends
-// back vocals, instrumental and notes.
+// back vocals, instrumental and notes. Given a MIDI of the same song, it also
+// lines the MIDI up with the recording.
 import { separateVocals, MODELS } from './separate.js';
 import { transcribeMelody } from './transcribe.js';
+import { alignMidiToAudio } from './align.js';
 
 const ORT_DIR = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
 let ort = null;
@@ -60,7 +62,7 @@ async function getSession(key) {
 }
 
 self.onmessage = async (e) => {
-  const { L, R, model = 'voc_ft' } = e.data;
+  const { L, R, model = 'voc_ft', midi = null } = e.data;
   try {
     const cfg = MODELS[model];
     const { session, backend } = await getSession(model);
@@ -75,8 +77,15 @@ self.onmessage = async (e) => {
     const mono = new Float32Array(vl.length);
     for (let i = 0; i < mono.length; i++) mono[i] = (vl[i] + vr[i]) / 2;
     const notes = transcribeMelody(mono, cfg.sampleRate);
+    let align = null;
+    if (midi) {
+      post({ type: 'progress', stage: 'align', p: 0 });
+      const mix = new Float32Array(L.length);
+      for (let i = 0; i < mix.length; i++) mix[i] = (L[i] + R[i]) / 2;
+      align = alignMidiToAudio(midi, mix, cfg.sampleRate, { vocalNotes: notes, melody: midi.melody });
+    }
     const bufs = [...res.vocals, ...res.instrumental].map((a) => a.buffer);
-    post({ type: 'done', vocals: res.vocals, instrumental: res.instrumental, notes, backend }, bufs);
+    post({ type: 'done', vocals: res.vocals, instrumental: res.instrumental, notes, align, backend }, bufs);
   } catch (err) {
     post({ type: 'error', message: err?.message || String(err) });
   }

@@ -2,7 +2,8 @@ import { parseMidi } from './midi.js';
 import { analyzeVoice, renderNote, midiToFreq, naturalLength } from './psola.js';
 import { assignSyllables, topLine, nextWildLetter } from './syllables.js';
 import { demoSong } from './demo.js';
-import { searchSongs, processSong } from './songmode.js';
+import { searchSongs, processSong, findRecording } from './songmode.js';
+import { warpNotes, FRAME } from './align.js';
 import { guessMelody } from './melody.js';
 import { prepareInstruments, startInstruments } from './synth.js';
 import { searchKaraoke, fetchKaraokeMidi, loadIndex } from './karaoke.js';
@@ -95,13 +96,14 @@ function setSong(s, melody = null) {
   startOffset = 0;
   seed = 0;
   song = s;
-  if (s.audio) {
+  if (s.audio && !s.aligned) {
     modes = ['oiia'];
   } else {
     const g = melody ?? guessMelody(s);
     s.melody = g;
-    modes = s.tracks.map((t, i) => (i === g.index ? 'oiia' : 'inst'));
-    if (g.index < 0) modes = s.tracks.map((t) => (t.isDrums ? 'inst' : 'oiia'));
+    // over a real recording the other tracks start off: the instrumental plays them
+    modes = s.tracks.map((t, i) => (i === g.index ? 'oiia' : s.aligned ? 'off' : 'inst'));
+    if (g.index < 0) modes = s.tracks.map((t) => (!t.isDrums ? 'oiia' : s.aligned ? 'off' : 'inst'));
     // a melody track that also plays chords (e.g. a piano part): sing its top line
     $('chords').value = g.polyphonic ? 'top' : 'all';
   }
@@ -110,10 +112,14 @@ function setSong(s, melody = null) {
   const mel = s.melody && s.melody.index >= 0
     ? ` · cat sings “${s.tracks[s.melody.index].name}” (${s.melody.source === 'lyrics' ? 'matched by lyrics' : `${Math.round(s.melody.confidence * 100)}% sure it's the melody`})`
     : '';
-  $('songInfo').textContent = s.audio
+  const al = s.aligned;
+  $('songInfo').textContent = al
+    ? `${s.name} · ${fmt(s.duration)} over the real recording (${al.label}) · MIDI ${fmt(al.midiStart)}–${fmt(al.midiEnd)} lined up${al.transpose ? ` · moved ${al.transpose > 0 ? 'up' : 'down'} ${Math.abs(al.transpose)} semitone${Math.abs(al.transpose) > 1 ? 's' : ''} to the recording's key` : ''}${mel}`
+    : s.audio
     ? `${s.name} · ${fmt(s.duration)} · song mode · ${s.tracks[0].notes.length} sung notes found`
     : `${s.name} · ${fmt(s.duration)} · ${s.tracks.length} track${s.tracks.length > 1 ? 's' : ''} · ${Math.round(s.bpm)} bpm${mel}`;
   renderTrackList();
+  renderRealBox();
   $('tracksCard').classList.remove('hidden');
   $('playCard').classList.remove('hidden');
   invalidate();
@@ -149,7 +155,7 @@ function renderTrackList() {
     row.querySelector('.name').textContent = t.name;
     const sel = row.querySelector('select');
     sel.value = modes[i];
-    if (song.audio) sel.querySelector('option[value="inst"]').remove();
+    if (song.audio && !song.aligned) sel.querySelector('option[value="inst"]').remove();
     sel.addEventListener('change', () => { modes[i] = sel.value; invalidate(); });
     row.appendChild(volumeControl(trackVol[i], (v) => { trackVol[i] = v; setGain(`t${i}`, v); }));
     const solo = document.createElement('button');
@@ -178,7 +184,7 @@ function renderTrackList() {
     row.appendChild(document.createElement('span'));
     mix.appendChild(row);
   };
-  addRow('🎵 Background music', 'instrumental from the AI split', bgVol, 'bg', (v) => (bgVol = v));
+  addRow('🎵 Background music', song.aligned ? 'the real instrumental (AI vocal removal)' : 'instrumental from the AI split', bgVol, 'bg', (v) => (bgVol = v));
   addRow('🗣 Original vocals', 'turn up to compare', origVol, 'orig', (v) => (origVol = v));
 }
 
@@ -442,11 +448,11 @@ async function buildGraph(ac, dest, offset, when) {
   return { sources, gains, inst };
 }
 
-const instrumentTracks = () => (song.audio ? [] : song.tracks.map((t, i) => ({ t, i })).filter(({ i }) => modes[i] === 'inst'));
+const instrumentTracks = () => (song.audio && !song.aligned ? [] : song.tracks.map((t, i) => ({ t, i })).filter(({ i }) => modes[i] === 'inst'));
 let instReady = '';
 async function ensureInstruments() {
   const list = instrumentTracks().map(({ t }) => t);
-  const key = `${song.name}|${modes.join()}`;
+  const key = `${song.name}|${!!song.aligned}|${modes.join()}`;
   if (!list.length || instReady === key) return;
   await prepareInstruments(ctx, list, (p) => { $('playBtn').textContent = `Loading instruments ${Math.round(p * 100)}%`; });
   instReady = key;
@@ -689,6 +695,7 @@ async function loadKaraoke(r) {
   try {
     const m = parseMidi(await fetchKaraokeMidi(r));
     m.name = `${r.title} — ${r.artist}`;
+    m.title = r.title; m.artist = r.artist;
     const g = guessMelody(m);
     setSong(m, g);
     st.textContent = '';
@@ -762,6 +769,86 @@ async function runSongMode(source, name) {
     $('smText').textContent = `Song mode failed: ${err.message}`;
     $('smBar').style.width = '0';
   }
+  smBusy = false;
+}
+
+// ---------- MIDI melody over the real recording ----------
+
+function renderRealBox() {
+  const box = $('realBox');
+  box.classList.toggle('hidden', !!(song.audio && !song.aligned));
+  $('realBtn').textContent = song.aligned ? '↩ Back to the MIDI band' : '🎤 Sing over the real recording';
+  $('realFileLbl').firstChild.textContent = song.aligned ? 'use a different audio file (whole song)' : 'or use your own audio file (whole song)';
+  $('realHelp').classList.toggle('hidden', !!song.aligned);
+  $('realStatus').classList.add('hidden');
+}
+
+$('realBtn').addEventListener('click', () => {
+  if (song.aligned) setSong(song.aligned.from, song.aligned.from.melody);
+  else singOverRecording(null);
+});
+$('realFile').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (f) singOverRecording({ file: f });
+  e.target.value = '';
+});
+
+async function singOverRecording(source) {
+  if (smBusy || !song) return;
+  smBusy = true;
+  stop();
+  const orig = song.aligned?.from ?? song;
+  $('realStatus').classList.remove('hidden', 'err');
+  const setStatus = (text, p) => {
+    $('realText').textContent = text;
+    $('realBar').style.width = p == null ? '100%' : `${Math.round(p * 100)}%`;
+    $('realBar').classList.toggle('indet', p == null);
+  };
+  $('realBtn').disabled = true;
+  try {
+    let label;
+    if (source) {
+      label = source.file.name.replace(/\.[^.]+$/, '');
+    } else {
+      setStatus('Finding the song on iTunes…', null);
+      const title = orig.title ?? orig.name.replace(/\.midi?$/i, '').replace(/[_-]+/g, ' ');
+      const hit = await findRecording(title, orig.artist ?? '');
+      if (!hit) throw new Error("couldn't find this song on iTunes. Try your own audio file instead");
+      source = { url: hit.preview };
+      label = `${hit.title} – ${hit.artist}, iTunes preview`;
+    }
+    const mel = orig.melody?.index ?? -1;
+    const midi = { duration: orig.duration, melody: mel, tracks: orig.tracks.map((t) => ({ isDrums: t.isDrums, notes: t.notes })) };
+    const r = await processSong(source, setStatus, midi);
+    const al = r.align;
+    const mk = ([l, rr]) => { const b = ctx.createBuffer(2, l.length, r.sampleRate); b.copyToChannel(l, 0); b.copyToChannel(rr, 1); return b; };
+    const instrumental = mk(r.instrumental), vocals = mk(r.vocals);
+    // move every track onto the recording's timeline, dropping the ones with no notes there
+    const warped = orig.tracks.map((t, i) => ({ t: { ...t, notes: warpNotes(t.notes, al) }, i })).filter(({ t }) => t.notes.length);
+    const melIdx = warped.findIndex(({ i }) => i === mel);
+    if (mel >= 0 && melIdx < 0) throw new Error("the melody doesn't show up in the part of the song that matched");
+    // tempo on the new timeline: the MIDI's tempo times how much it got stretched
+    const stretch = ((al.curve[al.curve.length - 1] - al.curve[0]) * FRAME) / Math.max(FRAME, al.midiEnd - al.midiStart) || 1;
+    const spb = orig.secPerBeatAt(al.midiStart) * stretch;
+    const s = {
+      name: orig.name,
+      tracks: warped.map(({ t }) => t),
+      duration: instrumental.duration,
+      bpm: orig.bpm / stretch,
+      secPerBeatAt: () => spb,
+      audio: { instrumental, vocals },
+      aligned: { from: orig, label, midiStart: al.midiStart, midiEnd: al.midiEnd, transpose: al.transpose },
+    };
+    smBusy = false;
+    setSong(s, mel >= 0 ? { ...orig.melody, index: melIdx } : null);
+  } catch (err) {
+    $('realStatus').classList.remove('hidden');
+    $('realStatus').classList.add('err');
+    $('realText').textContent = `Couldn't sing over the recording: ${err.message}`;
+    $('realBar').style.width = '0';
+    $('realBar').classList.remove('indet');
+  }
+  $('realBtn').disabled = false;
   smBusy = false;
 }
 

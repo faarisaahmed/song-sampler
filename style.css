@@ -125,6 +125,9 @@ footer a { color: var(--muted); }
 .track { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
 .tname { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .mixrows { margin-top: 6px; }
+.realbox { margin-top: 12px; padding: 12px; border-radius: 10px; background: #251f36; }
+.realbox .row { margin-top: 0; }
+.realbox p { margin: 8px 0 0; }
 .mixrows .track { background: #251f36; }
 .progress div.indet { background: linear-gradient(90deg, #2d2640, var(--accent), #2d2640); background-size: 200% 100%; animation: indet 1.2s linear infinite; }
 @keyframes indet { from { background-position: 100% 0; } to { background-position: -100% 0; } }

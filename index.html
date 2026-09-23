@@ -64,6 +64,17 @@
       <h2>2 · Choose tracks</h2>
       <div id="tracks" class="tracks"></div>
       <div id="mixRows" class="tracks mixrows hidden"></div>
+      <div id="realBox" class="realbox hidden">
+        <div class="row">
+          <button type="button" id="realBtn" class="primary">🎤 Sing over the real recording</button>
+          <label class="filebtn" id="realFileLbl">or use your own audio file (whole song)<input type="file" id="realFile" accept="audio/*" hidden /></label>
+        </div>
+        <p id="realHelp" class="muted small">Swaps the MIDI band for the real song: it finds the recording on iTunes (a 30-second preview), removes the vocals with an AI model on your device (67 MB, downloaded once), and lines the MIDI up with it, so the cat sings the melody over the real instrumental. For the whole song, use your own audio file.</p>
+        <div id="realStatus" class="status hidden">
+          <span id="realText"></span>
+          <div class="progress"><div id="realBar"></div></div>
+        </div>
+      </div>
       <div class="options">
         <label title="A rest this long (or longer) starts a new passage. Every passage starts with o-i and ends with a.">
           Passage break at rests ≥
@@ -136,6 +147,7 @@
       <p><b>Length.</b> <i>Held</i> stretches each syllable to fill the whole MIDI note. <i>Normal</i> has the cat say each syllable at its natural speed (never longer than the note), so it sounds choppy like the original meme.</p>
       <p><b>Song search.</b> The songs are human-made karaoke MIDIs from the Lyrics MIDI Dataset (Lakh MIDI, MetaMIDI and others). Each one is pulled straight out of the dataset's multi-gigabyte zip on Hugging Face with a single HTTP range request. To find the sung melody: if the file has lyrics, the track whose notes start where the syllables do is the melody. Otherwise a small neural network trained on 8,134 lyric-labeled songs picks it; it's right 85% of the time on songs it never saw, and 92% of the time when it's at least 70% sure. Only songs that are lyric-matched or ≥70% sure are listed. The other tracks are played by real sampled instruments (FluidR3 General MIDI soundfont), with synthesized drums, so everything stays perfectly in sync.</p>
       <p><b>Tracks.</b> Every track can be 🐱 sung by the cat, 🎹 played on its instrument, or turned off, and each one has its own volume slider (so piano songs get separate right- and left-hand volume).</p>
+      <p><b>Singing over the real recording.</b> After you pick a MIDI, the real song is found on iTunes (or you give your own file), its vocals are removed by the AI model below, and the MIDI is lined up with the recording using dynamic time warping on chroma (which pitch classes are sounding). The whole MIDI is compared with the full mix, and its melody track with the melody transcribed from the removed vocals, so repeated chord loops don't fool it. The cat then sings the MIDI melody, stretched and transposed to fit the recording.</p>
       <p><b>Real recordings (experimental).</b> The UVR-MDX-NET Voc_FT model runs in your browser with onnxruntime-web and splits a recording into vocals and instrumental, then the melody is guessed from the vocals with pitch tracking. The instrumental is real, but reading a melody out of audio is much less reliable than using a MIDI.</p>
       <p><b>Octave range.</b> Every note gets moved up or down by whole octaves until it fits inside the range. The range is centered on the cat's own voice (about D#4), where the samples sound the most natural. Deep notes move up and very high notes move down.</p>
     </section>

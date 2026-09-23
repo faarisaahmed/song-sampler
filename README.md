@@ -21,7 +21,12 @@ Turn any MIDI file into an OIIA cat song, right in your browser.
   - Melody track: lyric alignment when the file has lyrics, otherwise a small MLP trained on 8,134 lyric-labeled songs (85% test accuracy, 92% when ≥70% confident). Only lyric-matched or ≥70%-confident songs are listed.
   - Other tracks play through the FluidR3 GM soundfont (drums are synthesized). Every track can be cat / instrument / off, with its own volume.
   - Rebuild the index: `python3 tools/build_karaoke_index.py raw.json`, then `node tools/rate_karaoke_index.mjs raw.json <deduped-block> <block-start> <genius.zip>`. Retrain with `tools/extract_melody_features.mjs` + `tools/train_melody.py`.
-- **Real-recording mode (experimental)** (`js/songmode.js`, `js/sep-worker.js`, `js/separate.js`, `js/transcribe.js`):
+- **Sing over the real recording** (`js/align.js`): after picking a MIDI, one click swaps the MIDI band for the real song's instrumental.
+  1. The recording is found on iTunes (30 s preview) with a title/artist match, or you load your own audio file for the whole song.
+  2. The vocals are removed with the same AI model as below, and the sung melody is transcribed.
+  3. The MIDI is lined up with the recording by subsequence dynamic time warping on chroma features: the whole MIDI against the full mix (harmony), plus the MIDI's melody track against the transcribed vocal (melody, weight 0.7), which tells apart sections that share the same chords. The best of the three likeliest transpositions is kept, so MIDIs in a different key are shifted to the recording's key.
+  4. Every track is warped onto the recording's timeline. The cat sings the melody; the other tracks start off (they can be switched back to instruments).
+ (`js/songmode.js`, `js/sep-worker.js`, `js/separate.js`, `js/transcribe.js`):
   1. Search with the [iTunes Search API](https://performance-partners.apple.com/search-api) (30 s previews), or load your own audio file.
   2. The [UVR-MDX-NET Voc_FT](https://github.com/Anjok07/ultimatevocalremovergui) model runs in a Web Worker with [onnxruntime-web](https://onnxruntime.ai/) (WebGPU, falling back to WebAssembly) and splits vocals from the instrumental. The 67 MB model is cached after the first download.
   3. The vocal stem goes through pitch tracking (YIN every 10 ms, a loudness gate, median smoothing) and is cut into notes, which the OIIA engine sings over the instrumental.
