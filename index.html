@@ -34,8 +34,18 @@
       <p id="songInfo" class="muted small info"></p>
 
       <div class="songmode">
-        <h3>🎤 Song mode <span class="badge">experimental</span></h3>
-        <p class="muted small">Search any song and the cat takes over the vocals, singing on top of the real instrumental. An AI vocal-removal model (UVR MDX-Net, 67 MB, downloaded once) splits the voice from the music right on your device, then the sung melody is read off and fed to the OIIA engine. Search uses the iTunes API, which only gives 30-second previews. For a whole song, use your own audio file.</p>
+        <h3>🔎 Search songs <span class="badge" id="songCount">human-made MIDIs</span></h3>
+        <p class="muted small">Every result is a human-made karaoke MIDI from the <a href="https://huggingface.co/datasets/asigalov61/Lyrics-MIDI-Dataset">Lyrics MIDI Dataset</a>. Songs are only listed if their melody track could be pinned down, either by the lyrics lining up with it or by a model that's at least 70% sure. The cat sings the melody and the rest of the band plays the other tracks.</p>
+        <form id="kSearch" class="row">
+          <input id="kq" type="search" placeholder="Song or artist, e.g. never gonna give you up" autocomplete="off" />
+          <button class="primary" type="submit">Search</button>
+        </form>
+        <div id="kResults" class="results"></div>
+        <p id="kStatus" class="muted small info"></p>
+
+        <details class="experimental">
+          <summary>🧪 Experimental: sing over a real recording (AI vocal removal)</summary>
+        <p class="muted small">Instead of a MIDI, this uses the actual recording. An AI model (UVR MDX-Net, 67 MB, downloaded once) removes the vocals right on your device, and the melody is guessed from the removed voice. The instrumental is real, but guessing the melody from audio is hit-and-miss. Search here uses the iTunes API (30-second previews), or you can use your own audio file.</p>
         <form id="searchForm" class="row">
           <input id="q" type="search" placeholder="Search a song or artist…" autocomplete="off" />
           <button class="primary" type="submit">Search</button>
@@ -46,6 +56,7 @@
           <span id="smText"></span>
           <div class="progress"><div id="smBar"></div></div>
         </div>
+        </details>
       </div>
     </section>
 
@@ -123,7 +134,9 @@
       <p><b>Classic</b> uses tidy words instead: <code>oia</code> (3 notes), <code>oiia</code> (4), <code>oiiia</code> (5), split so each word's "a" lands on a long note.</p>
       <p><b>Pitch.</b> The three sounds come from the original OIIA cat clip. Each note is made with PSOLA pitch shifting, which rebuilds the sound one vocal cycle at a time. Pitch, length and vowel sound are all set separately, so low notes don't slow down or get muddy and high notes don't turn into squeaky chipmunks. Every note is also matched to the same loudness.</p>
       <p><b>Length.</b> <i>Held</i> stretches each syllable to fill the whole MIDI note. <i>Normal</i> has the cat say each syllable at its natural speed (never longer than the note), so it sounds choppy like the original meme.</p>
-      <p><b>Song mode.</b> Search results come from the iTunes Search API (30-second previews). The UVR-MDX-NET Voc_FT model runs in your browser with onnxruntime-web (WebGPU if your browser has it, WebAssembly otherwise) and splits the song into vocals and instrumental. The vocal track then goes through pitch tracking: its pitch is measured every 10 ms, and the curve is cut into notes wherever the singer breathes, changes pitch, or starts a new syllable. Those notes are sung by the cat over the instrumental. You can bring the original vocals back in with the mixer to compare.</p>
+      <p><b>Song search.</b> The songs are human-made karaoke MIDIs from the Lyrics MIDI Dataset (Lakh MIDI, MetaMIDI and others). Each one is pulled straight out of the dataset's multi-gigabyte zip on Hugging Face with a single HTTP range request. To find the sung melody: if the file has lyrics, the track whose notes start where the syllables do is the melody. Otherwise a small neural network trained on 8,134 lyric-labeled songs picks it; it's right 85% of the time on songs it never saw, and 92% of the time when it's at least 70% sure. Only songs that are lyric-matched or ≥70% sure are listed. The other tracks are played by real sampled instruments (FluidR3 General MIDI soundfont), with synthesized drums, so everything stays perfectly in sync.</p>
+      <p><b>Tracks.</b> Every track can be 🐱 sung by the cat, 🎹 played on its instrument, or turned off, and each one has its own volume slider (so piano songs get separate right- and left-hand volume).</p>
+      <p><b>Real recordings (experimental).</b> The UVR-MDX-NET Voc_FT model runs in your browser with onnxruntime-web and splits a recording into vocals and instrumental, then the melody is guessed from the vocals with pitch tracking. The instrumental is real, but reading a melody out of audio is much less reliable than using a MIDI.</p>
       <p><b>Octave range.</b> Every note gets moved up or down by whole octaves until it fits inside the range. The range is centered on the cat's own voice (about D#4), where the samples sound the most natural. Deep notes move up and very high notes move down.</p>
     </section>
   </main>
@@ -132,7 +145,8 @@
     Made for fun. The OIIA sound comes from the spinning-cat meme.<br />
     Für Elise &amp; Rondo alla Turca MIDI by Bernd Krueger, <a href="http://www.piano-midi.de">piano-midi.de</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/de/deed.en">CC BY-SA 3.0 DE</a>).
     The Entertainer MIDI from the <a href="https://github.com/Tonejs/Midi">Tonejs/Midi</a> test files.<br />
-    Song mode: search by the iTunes Search API · vocal separation by the UVR-MDX-NET Voc_FT model from <a href="https://github.com/Anjok07/ultimatevocalremovergui">Ultimate Vocal Remover</a>, run with <a href="https://onnxruntime.ai/">onnxruntime-web</a>.
+    Song search: MIDIs from the <a href="https://huggingface.co/datasets/asigalov61/Lyrics-MIDI-Dataset">Lyrics MIDI Dataset</a> by asigalov61 (Project Los Angeles) (<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>). Instruments: <a href="https://github.com/gleitz/midi-js-soundfonts">FluidR3 GM soundfont</a> (<a href="https://creativecommons.org/licenses/by/3.0/us/">CC BY 3.0</a>).<br />
+    Real-recording mode: iTunes Search API · UVR-MDX-NET Voc_FT model from <a href="https://github.com/Anjok07/ultimatevocalremovergui">Ultimate Vocal Remover</a>, run with <a href="https://onnxruntime.ai/">onnxruntime-web</a>.
   </footer>
 
   <script type="module" src="js/app.js"></script>

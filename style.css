@@ -128,3 +128,11 @@ footer a { color: var(--muted); }
 .mixrows .track { background: #251f36; }
 .progress div.indet { background: linear-gradient(90deg, #2d2640, var(--accent), #2d2640); background-size: 200% 100%; animation: indet 1.2s linear infinite; }
 @keyframes indet { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.experimental { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.experimental summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.experimental[open] summary { margin-bottom: 8px; }
+#kq { flex: 1; min-width: 200px; font: inherit; color: var(--text); background: #1a1626; border: 1px solid var(--line); border-radius: 9px; padding: 7px 12px; }
+.result .conf { font-size: 11px; color: var(--accent); }
+.result .icon { width: 40px; height: 40px; border-radius: 8px; flex: none; display: grid; place-items: center; background: #3b2f58; font-size: 20px; }
+select.mode { padding: 3px 6px; font-size: 13px; }
+.songmode a { color: var(--accent); }

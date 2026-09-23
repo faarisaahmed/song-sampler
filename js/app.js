@@ -3,6 +3,9 @@ import { analyzeVoice, renderNote, midiToFreq, naturalLength } from './psola.js'
 import { assignSyllables, topLine, nextWildLetter } from './syllables.js';
 import { demoSong } from './demo.js';
 import { searchSongs, processSong } from './songmode.js';
+import { guessMelody } from './melody.js';
+import { prepareInstruments, startInstruments } from './synth.js';
+import { searchKaraoke, fetchKaraokeMidi, loadIndex } from './karaoke.js';
 
 const $ = (id) => document.getElementById(id);
 const COLORS = { o: '#6cc6ff', i: '#ff7ab8', a: '#ffd35c' };
@@ -14,8 +17,8 @@ let voices = null; // { o, i, i2, a } -> analyzed voice
 const voicesReady = loadVoices();
 
 let song = null; // { tracks, duration, secPerBeatAt, bpm, name }
-let enabled = []; // per-track bool
-let sung = []; // notes with syllables (all enabled tracks)
+let modes = []; // per track: 'oiia' (sung by the cat) | 'inst' (played by its instrument) | 'off'
+let sung = []; // notes with syllables (all cat tracks)
 let lyricWords = []; // [{ time, end, el }]
 let rendered = null; // Map track index -> AudioBuffer (OIIA voice for that track)
 let dirty = true;
@@ -86,18 +89,30 @@ const GM_FAMILIES = ['Piano', 'Chromatic perc.', 'Organ', 'Guitar', 'Bass', 'Str
   'Reed', 'Pipe', 'Synth lead', 'Synth pad', 'Synth FX', 'Ethnic', 'Percussive', 'Sound FX'];
 const noteName = (m) => ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][m % 12] + (Math.floor(m / 12) - 1);
 
-function setSong(s) {
+// melody = the track the cat sings; everything else plays on its instrument
+function setSong(s, melody = null) {
   stop();
   startOffset = 0;
   seed = 0;
   song = s;
-  enabled = s.tracks.map((t) => !t.isDrums);
-  if (!enabled.some(Boolean)) enabled[0] = true;
-  trackVol = s.tracks.map(() => 1);
+  if (s.audio) {
+    modes = ['oiia'];
+  } else {
+    const g = melody ?? guessMelody(s);
+    s.melody = g;
+    modes = s.tracks.map((t, i) => (i === g.index ? 'oiia' : 'inst'));
+    if (g.index < 0) modes = s.tracks.map((t) => (t.isDrums ? 'inst' : 'oiia'));
+    // a melody track that also plays chords (e.g. a piano part): sing its top line
+    $('chords').value = g.polyphonic ? 'top' : 'all';
+  }
+  trackVol = s.tracks.map((t, i) => (modes[i] === 'oiia' ? 1 : 0.7));
   bgVol = 1; origVol = 0;
+  const mel = s.melody && s.melody.index >= 0
+    ? ` · cat sings “${s.tracks[s.melody.index].name}” (${s.melody.source === 'lyrics' ? 'matched by lyrics' : `${Math.round(s.melody.confidence * 100)}% sure it's the melody`})`
+    : '';
   $('songInfo').textContent = s.audio
     ? `${s.name} · ${fmt(s.duration)} · song mode · ${s.tracks[0].notes.length} sung notes found`
-    : `${s.name} · ${fmt(s.duration)} · ${s.tracks.length} track${s.tracks.length > 1 ? 's' : ''} · ${Math.round(s.bpm)} bpm`;
+    : `${s.name} · ${fmt(s.duration)} · ${s.tracks.length} track${s.tracks.length > 1 ? 's' : ''} · ${Math.round(s.bpm)} bpm${mel}`;
   renderTrackList();
   $('tracksCard').classList.remove('hidden');
   $('playCard').classList.remove('hidden');
@@ -123,17 +138,25 @@ function renderTrackList() {
     const lo = Math.min(...t.notes.map((n) => n.midi)), hi = Math.max(...t.notes.map((n) => n.midi));
     const row = document.createElement('div');
     row.className = 'track';
+    const star = song.melody?.index === i ? '★ melody · ' : '';
     row.innerHTML = `
-      <label class="tname"><input type="checkbox" ${enabled[i] ? 'checked' : ''} /><span class="name"></span></label>
-      <span class="meta">${t.label || (t.isDrums ? 'Drums' : GM_FAMILIES[t.program >> 3])} · ${t.notes.length} notes · ${noteName(lo)}–${noteName(hi)}</span>`;
+      <span class="tname"><select class="mode" title="Who plays this track">
+        ${t.isDrums ? '' : '<option value="oiia">🐱 Cat</option>'}
+        <option value="inst">${t.isDrums ? '🥁 Drums' : '🎹 Instrument'}</option>
+        <option value="off">Off</option>
+      </select><span class="name"></span></span>
+      <span class="meta">${star}${t.label || (t.isDrums ? 'Drums' : GM_FAMILIES[t.program >> 3])} · ${t.notes.length} notes · ${noteName(lo)}–${noteName(hi)}</span>`;
     row.querySelector('.name').textContent = t.name;
-    row.querySelector('input').addEventListener('change', (e) => { enabled[i] = e.target.checked; invalidate(); });
+    const sel = row.querySelector('select');
+    sel.value = modes[i];
+    if (song.audio) sel.querySelector('option[value="inst"]').remove();
+    sel.addEventListener('change', () => { modes[i] = sel.value; invalidate(); });
     row.appendChild(volumeControl(trackVol[i], (v) => { trackVol[i] = v; setGain(`t${i}`, v); }));
     const solo = document.createElement('button');
     solo.type = 'button'; solo.title = 'Hear only this track'; solo.textContent = 'solo';
     solo.addEventListener('click', () => {
-      enabled = enabled.map((_, j) => j === i);
-      box.querySelectorAll('.tname input').forEach((cb, j) => (cb.checked = enabled[j]));
+      modes = modes.map((m, j) => (j === i ? (m === 'off' ? (song.tracks[j].isDrums ? 'inst' : 'oiia') : m) : 'off'));
+      box.querySelectorAll('select.mode').forEach((el, j) => (el.value = modes[j]));
       invalidate();
     });
     row.appendChild(solo);
@@ -190,7 +213,7 @@ function invalidate() {
   computeSyllables();
   drawRoll();
   renderLyrics();
-  $('playBtn').disabled = !sung.length;
+  $('playBtn').disabled = !sung.length && !instrumentTracks().length;
   $('time').textContent = `0:00 / ${fmt(song.duration)}`;
 }
 
@@ -198,7 +221,7 @@ function computeSyllables() {
   sung = [];
   const opts = { phraseGapBeats: parseFloat($('gap').value), style: styleMode(), seed };
   song.tracks.forEach((t, ti) => {
-    if (!enabled[ti]) return;
+    if (modes[ti] !== 'oiia') return;
     const notes = $('chords').value === 'top' ? topLine(t.notes) : t.notes;
     const r = assignSyllables(notes, song.secPerBeatAt, opts);
     for (const n of r.notes) sung.push({ ...n, track: ti });
@@ -252,8 +275,8 @@ function renderLyrics() {
   const box = $('lyrics');
   box.innerHTML = '';
   lyricWords = [];
-  // lyrics for the first enabled track (the one most likely to be the melody)
-  const ti = enabled.indexOf(true);
+  // lyrics for the first cat track (normally the melody)
+  const ti = modes.indexOf('oiia');
   if (ti < 0) return;
   const words = new Map();
   for (const n of sung) {
@@ -309,15 +332,22 @@ function drawRoll(playhead = null) {
 
 function paintNotes(cv) {
   const g = cv.getContext('2d');
-  if (!sung.length) return;
+  const inst = song ? song.tracks.flatMap((t, i) => (modes[i] === 'inst' && !t.isDrums ? t.notes : [])) : [];
+  if (!sung.length && !inst.length) return;
   let lo = Infinity, hi = -Infinity;
-  for (const n of sung) { lo = Math.min(lo, n.midi); hi = Math.max(hi, n.midi); }
+  for (const n of sung.length ? sung : inst) { lo = Math.min(lo, n.midi); hi = Math.max(hi, n.midi); }
   lo -= 2; hi += 2;
+  if (hi - lo < 24) { const mid = (hi + lo) / 2; lo = Math.floor(mid - 12); hi = Math.ceil(mid + 12); }
   const rowH = Math.min(14, (cv.height - 10) / (hi - lo + 1));
   const top = (cv.height - rowH * (hi - lo + 1)) / 2;
   const y = (m) => top + (hi - m) * rowH;
   g.fillStyle = '#ffffff0d';
   for (let m = lo; m <= hi; m++) if (m % 12 === 0) g.fillRect(0, y(m), cv.width, 1);
+  g.fillStyle = '#ffffff22';
+  for (const n of inst) {
+    if (n.midi < lo || n.midi > hi) continue;
+    g.fillRect(n.time * pxPerSec, y(n.midi), Math.max(1, n.duration * pxPerSec - 1), Math.max(1, rowH - 2));
+  }
   g.font = `bold ${Math.max(8, Math.min(12, rowH))}px system-ui`;
   g.textBaseline = 'middle';
   for (const n of sung) {
@@ -384,7 +414,7 @@ async function renderMix() {
 }
 
 // Build the playback graph on any context (live or offline for WAV export).
-function buildGraph(ac, dest, offset, when) {
+async function buildGraph(ac, dest, offset, when) {
   const sources = [], gains = {};
   const add = (buffer, key, vol) => {
     const src = ac.createBufferSource();
@@ -401,7 +431,25 @@ function buildGraph(ac, dest, offset, when) {
     add(song.audio.instrumental, 'bg', bgVol);
     add(song.audio.vocals, 'orig', origVol);
   }
-  return { sources, gains };
+  const instTracks = instrumentTracks().map(({ t, i }) => {
+    const g = ac.createGain();
+    g.gain.value = trackVol[i];
+    g.connect(dest);
+    gains[`t${i}`] = g;
+    return { ...t, dest: g };
+  });
+  const inst = instTracks.length ? await startInstruments(ac, instTracks, offset, when) : null;
+  return { sources, gains, inst };
+}
+
+const instrumentTracks = () => (song.audio ? [] : song.tracks.map((t, i) => ({ t, i })).filter(({ i }) => modes[i] === 'inst'));
+let instReady = '';
+async function ensureInstruments() {
+  const list = instrumentTracks().map(({ t }) => t);
+  const key = `${song.name}|${modes.join()}`;
+  if (!list.length || instReady === key) return;
+  await prepareInstruments(ctx, list, (p) => { $('playBtn').textContent = `Loading instruments ${Math.round(p * 100)}%`; });
+  instReady = key;
 }
 
 // ---------- transport ----------
@@ -416,15 +464,24 @@ async function play(offset) {
   stop();
   if (dirty || !rendered) {
     $('playBtn').disabled = true;
-    $('playBtn').textContent = 'Rendering…';
-    rendered = await renderMix();
-    dirty = false;
+    try {
+      $('playBtn').textContent = 'Loading instruments…';
+      await ensureInstruments();
+      $('playBtn').textContent = 'Rendering…';
+      rendered = await renderMix();
+      dirty = false;
+    } catch (err) {
+      $('playBtn').disabled = false;
+      $('playBtn').textContent = '▶ Play';
+      $('songInfo').textContent = `Couldn't get ready to play: ${err.message}`;
+      return;
+    }
     $('playBtn').disabled = false;
     $('wavBtn').disabled = false;
   }
   startOffset = offset;
-  startedAt = ctx.currentTime + 0.05;
-  playing = buildGraph(ctx, master, offset, startedAt);
+  startedAt = ctx.currentTime + 0.15;
+  playing = await buildGraph(ctx, master, offset, startedAt);
   $('playBtn').textContent = '❚❚ Pause';
   $('stopBtn').disabled = false;
   $('cat').classList.add('spin');
@@ -435,6 +492,7 @@ function stop() {
   if (playing) {
     const pos = Math.max(0, ctx.currentTime - startedAt) + startOffset;
     for (const src of playing.sources) { try { src.stop(); } catch {} }
+    playing.inst?.stop();
     playing = null;
     startOffset = Math.min(pos, song?.duration ?? 0);
   }
@@ -482,7 +540,7 @@ async function downloadWav() {
   const bus = off.createGain();
   bus.gain.value = HEADROOM;
   bus.connect(lim);
-  buildGraph(off, bus, 0, 0);
+  await buildGraph(off, bus, 0, 0);
   const out = await off.startRendering();
   const L = out.getChannelData(0), R = out.getChannelData(1), n = L.length;
   const b = new DataView(new ArrayBuffer(44 + n * 4));
@@ -595,6 +653,50 @@ window.addEventListener('keyup', (e) => {
   const i = KEYMAP.indexOf(e.key.toLowerCase());
   if (i >= 0) liveOff(LIVE_LOW + i);
 });
+
+// ---------- song search (human-made karaoke MIDIs) ----------
+
+loadIndex().then((idx) => { $('songCount').textContent = `${idx.songs.length.toLocaleString()} human-made MIDIs`; }).catch(() => {});
+
+$('kSearch').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = $('kq').value.trim();
+  if (!q) return;
+  const box = $('kResults');
+  box.textContent = 'Searching…';
+  try {
+    const results = await searchKaraoke(q);
+    box.innerHTML = '';
+    if (!results.length) { box.textContent = 'No songs found. Try just the title, or just the artist.'; return; }
+    for (const r of results) {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'result';
+      btn.innerHTML = '<span class="icon">🎼</span><div><div class="t"></div><div class="a"></div><div class="conf"></div></div>';
+      btn.querySelector('.t').textContent = r.title;
+      btn.querySelector('.a').textContent = r.artist;
+      btn.querySelector('.conf').textContent = `${fmt(r.seconds)}${r.seconds < 90 ? ' clip' : ''} · ${r.confidence >= 100 ? 'melody matched by lyrics' : `melody ${r.confidence}% sure`}`;
+      btn.addEventListener('click', () => loadKaraoke(r));
+      box.appendChild(btn);
+    }
+  } catch (err) {
+    box.textContent = `Search failed: ${err.message}`;
+  }
+});
+
+async function loadKaraoke(r) {
+  const st = $('kStatus');
+  st.textContent = `Loading “${r.title}”…`;
+  try {
+    const m = parseMidi(await fetchKaraokeMidi(r));
+    m.name = `${r.title} — ${r.artist}`;
+    const g = guessMelody(m);
+    setSong(m, g);
+    st.textContent = '';
+    $('tracksCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    st.textContent = `Couldn't load that song: ${err.message}`;
+  }
+}
 
 // ---------- song mode (experimental) ----------
 
