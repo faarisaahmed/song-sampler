@@ -63,6 +63,14 @@ button.ghost { background: transparent; }
 .options { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; color: var(--muted); align-items: center; }
 .options label { display: flex; gap: 8px; align-items: center; }
 input[type="range"] { accent-color: var(--accent); }
+.seg { display: flex; align-items: center; gap: 0; }
+.seg label { gap: 0; }
+.seg input { display: none; }
+.seg span { padding: 5px 12px; border: 1px solid var(--line); background: #2d2640; color: var(--muted); cursor: pointer; }
+.seg label:nth-of-type(1) span { border-radius: 9px 0 0 9px; margin-left: 8px; }
+.seg label:nth-of-type(2) span { border-radius: 0 9px 9px 0; border-left: 0; }
+.seg input:checked + span { background: var(--accent); color: #2a1030; font-weight: 600; }
+.info { margin: 10px 0 0; }
 
 .progress { height: 6px; background: #2d2640; border-radius: 4px; overflow: hidden; margin-top: 12px; }
 .progress div { height: 100%; width: 0; background: var(--accent); transition: width 0.1s; }
@@ -96,3 +104,4 @@ input[type="range"] { accent-color: var(--accent); }
 
 code { background: #2d2640; padding: 1px 5px; border-radius: 4px; color: var(--text); }
 footer { text-align: center; padding: 10px 20px 30px; }
+footer a { color: var(--muted); }

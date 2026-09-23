@@ -1,5 +1,5 @@
 import { parseMidi } from './midi.js';
-import { analyzeVoice, renderNote, midiToFreq } from './psola.js';
+import { analyzeVoice, renderNote, midiToFreq, naturalLength } from './psola.js';
 import { assignSyllables, topLine } from './syllables.js';
 import { demoSong } from './demo.js';
 
@@ -28,6 +28,7 @@ async function loadVoices() {
     out[name] = analyzeVoice(buf.getChannelData(0), buf.sampleRate);
   }));
   voices = out;
+  if (song) invalidate(); // natural lengths are known now
 }
 
 // ---------- loading songs ----------
@@ -41,13 +42,27 @@ drop.addEventListener('drop', (e) => {
   const f = e.dataTransfer.files[0];
   if (f) loadFile(f);
 });
-$('demoBtn').addEventListener('click', () => setSong(demoSong()));
+document.querySelectorAll('[data-song]').forEach((btn) => btn.addEventListener('click', async () => {
+  const src = btn.dataset.song;
+  if (src === 'demo') return setSong(demoSong());
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    loadMidi(await res.arrayBuffer(), btn.textContent);
+  } catch (err) {
+    $('songInfo').textContent = `Couldn't load ${btn.textContent}: ${err.message}`;
+  }
+}));
 
 async function loadFile(file) {
+  loadMidi(await file.arrayBuffer(), file.name);
+}
+
+function loadMidi(buf, name) {
   try {
-    const m = parseMidi(await file.arrayBuffer());
+    const m = parseMidi(buf);
     if (!m.tracks.length) throw new Error('No notes found in this file');
-    m.name = file.name;
+    m.name = name;
     setSong(m);
   } catch (err) {
     $('songInfo').textContent = `Couldn't read that file: ${err.message}`;
@@ -95,10 +110,12 @@ function renderTrackList() {
   });
 }
 
-['gap', 'chords', 'vibrato'].forEach((id) => $(id).addEventListener('input', () => {
+['gap', 'chords', 'vibrato', 'range'].forEach((id) => $(id).addEventListener('input', () => {
   $('gapVal').textContent = $('gap').value;
-  invalidate();
+  if (song) invalidate();
 }));
+document.querySelectorAll('input[name="length"]').forEach((r) => r.addEventListener('change', () => song && invalidate()));
+const lengthMode = () => document.querySelector('input[name="length"]:checked').value;
 
 // ---------- syllables + preview ----------
 
@@ -124,6 +141,50 @@ function computeSyllables() {
     for (const n of r.notes) sung.push({ ...n, track: ti });
   });
   sung.sort((a, b) => a.time - b.time);
+
+  // octave range: fold every note into a window of N octaves
+  const oct = parseInt($('range').value, 10);
+  $('rangeVal').textContent = '';
+  if (oct && sung.length) {
+    const lo = pickWindow(sung, oct), hi = lo + 12 * oct;
+    for (const n of sung) {
+      while (n.midi < lo) n.midi += 12;
+      while (n.midi >= hi) n.midi -= 12;
+    }
+    // folding can land two notes of a chord on the same pitch; keep one
+    const seen = new Map();
+    sung = sung.filter((n) => {
+      const key = `${n.track}|${n.midi}|${Math.round(n.time * 50)}`;
+      const prev = seen.get(key);
+      if (prev) { prev.duration = Math.max(prev.duration, n.duration); prev.velocity = Math.max(prev.velocity, n.velocity); return false; }
+      seen.set(key, n);
+      return true;
+    });
+    $('rangeVal').textContent = `→ ${noteName(lo)}–${noteName(hi - 1)}`;
+  }
+
+  // Held = sing for the whole MIDI note; Normal = the cat's natural syllable length
+  const normal = lengthMode() === 'normal';
+  for (const n of sung) {
+    n.singDur = normal ? Math.min(n.duration, natLen(n.sample)) : n.duration;
+  }
+}
+
+const FALLBACK_LEN = { o: 0.13, i: 0.075, i2: 0.075, a: 0.18 };
+const natLen = (sample) => (voices ? naturalLength(voices[sample]) : FALLBACK_LEN[sample]);
+
+// Place the window where it already holds the most notes (so the melody
+// mostly keeps its pitch) but never lower than C3, so deep notes move up.
+// Ties go to the window closest to the cat's own voice (around E4).
+function pickWindow(notes, oct) {
+  let best = 48, bestScore = -Infinity;
+  for (let lo = 48; lo <= 72; lo++) {
+    let inside = 0;
+    for (const n of notes) if (n.midi >= lo && n.midi < lo + 12 * oct) inside++;
+    const score = inside - 0.001 * Math.abs(lo + 6 * oct - 64);
+    if (score > bestScore) { bestScore = score; best = lo; }
+  }
+  return best;
 }
 
 function renderLyrics() {
@@ -139,8 +200,8 @@ function renderLyrics() {
     const key = `${n.passage}:${n.word}`;
     if (!words.has(key)) words.set(key, { passage: n.passage, events: new Map() });
     const w = words.get(key);
-    if (!w.events.has(n.time)) w.events.set(n.time, { syl: n.syl, time: n.time, end: n.time + n.duration });
-    const ev = w.events.get(n.time);
+    if (!w.events.has(n.event)) w.events.set(n.event, { syl: n.syl, time: n.time, end: n.time + n.duration });
+    const ev = w.events.get(n.event);
     ev.end = Math.max(ev.end, n.time + n.duration);
   }
   let lastPassage = -1;
@@ -199,7 +260,7 @@ function paintNotes(cv) {
   g.font = `bold ${Math.max(8, Math.min(12, rowH))}px system-ui`;
   g.textBaseline = 'middle';
   for (const n of sung) {
-    const x = n.time * pxPerSec, ww = Math.max(2, n.duration * pxPerSec - 1);
+    const x = n.time * pxPerSec, ww = Math.max(2, n.singDur * pxPerSec - 1);
     g.globalAlpha = 0.55 + 0.45 * n.velocity;
     g.fillStyle = COLORS[n.syl];
     g.fillRect(x, y(n.midi), ww, Math.max(2, rowH - 1));
@@ -227,7 +288,7 @@ async function renderMix() {
   $('progress').classList.remove('hidden');
   for (let k = 0; k < sung.length; k++) {
     const n = sung[k];
-    const dur = Math.max(0.04, n.duration);
+    const dur = Math.max(0.04, n.singDur);
     const key = `${n.sample}|${n.midi}|${Math.round(dur * 200)}`;
     let buf = cache.get(key);
     if (!buf) {
@@ -383,7 +444,9 @@ async function liveOn(midi) {
   lastPress = now;
   const sample = LIVE_CYCLE[liveStep % 4];
   liveStep++;
-  const data = renderNote(voices[sample], midiToFreq(midi), 2.5, { vibrato: $('vibrato').checked });
+  // Held: sustain while the key is down. Normal: the syllable at its natural length.
+  const held = lengthMode() === 'held';
+  const data = renderNote(voices[sample], midiToFreq(midi), held ? 2.5 : natLen(sample), { vibrato: $('vibrato').checked });
   const buf = ctx.createBuffer(1, data.length, SR);
   buf.copyToChannel(data, 0);
   const src = ctx.createBufferSource();
@@ -392,7 +455,7 @@ async function liveOn(midi) {
   src.buffer = buf;
   src.connect(gain).connect(ctx.destination);
   src.start();
-  liveVoices.set(midi, { src, gain });
+  liveVoices.set(midi, { src, gain, held });
   const el = document.querySelector(`.key[data-midi="${midi}"]`);
   el?.classList.add('down');
   if (el) el.querySelector('.syl').textContent = sample[0];
@@ -402,10 +465,12 @@ function liveOff(midi) {
   const v = liveVoices.get(midi);
   if (!v) return;
   liveVoices.delete(midi);
-  const t = ctx.currentTime;
-  v.gain.gain.setValueAtTime(v.gain.gain.value, t);
-  v.gain.gain.linearRampToValueAtTime(0, t + 0.06);
-  v.src.stop(t + 0.07);
+  if (v.held) {
+    const t = ctx.currentTime;
+    v.gain.gain.setValueAtTime(v.gain.gain.value, t);
+    v.gain.gain.linearRampToValueAtTime(0, t + 0.06);
+    v.src.stop(t + 0.07);
+  }
   const el = document.querySelector(`.key[data-midi="${midi}"]`);
   el?.classList.remove('down');
   if (el) el.querySelector('.syl').textContent = '';

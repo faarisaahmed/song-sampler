@@ -25,9 +25,13 @@
         <strong>Drop a .mid file here</strong> or click to choose one
       </label>
       <div class="row">
-        <button id="demoBtn" class="ghost">Try the demo (Ode to Joy)</button>
-        <span id="songInfo" class="muted"></span>
+        <span class="muted">or try one:</span>
+        <button class="ghost" data-song="demo">Ode to Joy</button>
+        <button class="ghost" data-song="songs/fur-elise.mid">Für Elise</button>
+        <button class="ghost" data-song="songs/rondo-alla-turca.mid">Rondo alla Turca</button>
+        <button class="ghost" data-song="songs/the-entertainer.mid">The Entertainer</button>
       </div>
+      <p id="songInfo" class="muted small info"></p>
     </section>
 
     <section class="card hidden" id="tracksCard">
@@ -47,6 +51,23 @@
           </select>
         </label>
         <label><input type="checkbox" id="vibrato" checked /> Vibrato on long notes</label>
+      </div>
+      <div class="options">
+        <span class="seg" role="radiogroup" aria-label="Note length" title="Held: each syllable lasts as long as the MIDI note. Normal: the cat says each syllable at its natural length (shorter, choppier, like the meme).">
+          Length
+          <label><input type="radio" name="length" value="held" checked /><span>Held</span></label>
+          <label><input type="radio" name="length" value="normal" /><span>Normal</span></label>
+        </span>
+        <label title="Folds every note into this many octaves, moving low notes up and high notes down, so nothing sounds too deep or too squeaky.">
+          Octave range
+          <select id="range">
+            <option value="0">full (no limit)</option>
+            <option value="1">1 octave</option>
+            <option value="2">2 octaves</option>
+            <option value="3">3 octaves</option>
+          </select>
+          <span id="rangeVal" class="mono"></span>
+        </label>
       </div>
     </section>
 
@@ -77,10 +98,16 @@
       <h2>How it works</h2>
       <p><b>Syllables.</b> Notes played together count as one syllable. The song is cut into <i>passages</i> at rests, and each passage is sung as words that always start with <b>o&nbsp;i</b> and end with <b>a</b>: <code>oia</code> (3 notes), <code>oiia</code> (4), <code>oiiia</code> (5). Every length from 3 up can be built from those. When there's a choice, the split that puts the drawn-out "aaa" on long notes and right before breaks wins, so the same song always gets the same lyrics.</p>
       <p><b>Pitch.</b> The three sounds come from the original OIIA cat clip. Each note is made with PSOLA pitch shifting, which rebuilds the sound one vocal cycle at a time. Pitch, length and vowel sound are all set separately, so low notes don't slow down or get muddy and high notes don't turn into squeaky chipmunks. Every note is also matched to the same loudness.</p>
+      <p><b>Length.</b> <i>Held</i> stretches each syllable to fill the whole MIDI note. <i>Normal</i> has the cat say each syllable at its natural speed (never longer than the note), so it sounds choppy like the original meme.</p>
+      <p><b>Octave range.</b> Every note gets moved up or down by whole octaves until it fits inside the range. The range sits where it already covers the most notes, and never starts below C3, so deep bass notes move up instead of growling.</p>
     </section>
   </main>
 
-  <footer class="muted small">Made for fun. The OIIA sound comes from the spinning-cat meme.</footer>
+  <footer class="muted small">
+    Made for fun. The OIIA sound comes from the spinning-cat meme.<br />
+    Für Elise &amp; Rondo alla Turca MIDI by Bernd Krueger, <a href="http://www.piano-midi.de">piano-midi.de</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/de/deed.en">CC BY-SA 3.0 DE</a>).
+    The Entertainer MIDI from the <a href="https://github.com/Tonejs/Midi">Tonejs/Midi</a> test files.
+  </footer>
 
   <script type="module" src="js/app.js"></script>
 </body>

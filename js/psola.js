@@ -248,4 +248,7 @@ export function renderNote(voice, freq, dur, opts = {}) {
   return out;
 }
 
+// how long the syllable lasts when spoken at its natural speed
+export const naturalLength = (voice) => (voice.marks[voice.marks.length - 1] - voice.marks[0]) / voice.sr;
+
 export const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);

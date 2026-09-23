@@ -108,13 +108,13 @@ function wordSyllables(len) {
 /**
  * Assigns a syllable to every note of a track.
  * Each note gets: syl ('o' | 'i' | 'a'), sample ('o' | 'i' | 'i2' | 'a'),
- * passage (index), word (global index) and wordStart (bool).
+ * passage (index), word (global index), event (global index) and wordStart (bool).
  */
 export function assignSyllables(notes, secPerBeatAt, opts = {}) {
   const events = groupEvents(notes, opts.onsetTol);
   const passages = splitPassages(events, secPerBeatAt, opts);
   const out = [];
-  let wordIdx = 0;
+  let wordIdx = 0, eventIdx = 0;
   passages.forEach((passage, pi) => {
     const words = planWords(passage, secPerBeatAt);
     let i = 0;
@@ -124,7 +124,8 @@ export function assignSyllables(notes, secPerBeatAt, opts = {}) {
       syls.forEach((syl, j) => {
         const ev = passage[i + j];
         const sample = syl === 'i' ? (iCount++ % 2 ? 'i2' : 'i') : syl;
-        for (const n of ev.notes) out.push({ ...n, syl, sample, passage: pi, word: wordIdx, wordStart: j === 0 });
+        for (const n of ev.notes) out.push({ ...n, syl, sample, passage: pi, word: wordIdx, event: eventIdx, wordStart: j === 0 });
+        eventIdx++;
       });
       i += w;
       wordIdx++;

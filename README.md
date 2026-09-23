@@ -13,6 +13,13 @@ Turn any MIDI file into an OIIA cat song, right in your browser.
   2. The song is cut into passages at rests (≥ 0.5 beat by default). Passages shorter than 3 notes merge with a nearby one.
   3. Each passage is sung as words that always start `o i` and end `a`: `oia` (3), `oiia` (4), `oiiia` (5).
   4. A dynamic-programming pass picks the split that puts the drawn-out `a` on long notes and before breaks, so the same song always gets the same lyrics.
+- **Length**: *Held* stretches syllables across the whole note. *Normal* uses the cat's natural syllable length.
+- **Octave range**: optionally fold every note into 1–3 octaves, placed automatically (never starting below C3).
 - **MIDI**: a small built-in parser (`js/midi.js`) with tempo map support. No dependencies.
 
 Run it locally with any static server, e.g. `python3 -m http.server`.
+
+## Credits
+
+- Für Elise and Rondo alla Turca MIDI by Bernd Krueger, [piano-midi.de](http://www.piano-midi.de), licensed [CC BY-SA 3.0 DE](https://creativecommons.org/licenses/by-sa/3.0/de/deed.en).
+- The Entertainer MIDI from the [Tonejs/Midi](https://github.com/Tonejs/Midi) test files.
