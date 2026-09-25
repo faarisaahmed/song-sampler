@@ -41,18 +41,22 @@ async function loadModelBytes(url) {
   return bytes;
 }
 
-async function getSession(key) {
+async function getSession(key, noGpu) {
   if (sessions[key]) return sessions[key];
   if (!ort) {
-    ort = await import(`${ORT_DIR}ort.webgpu.min.mjs`);
+    // without the GPU, load the plain WebAssembly build: the WebGPU build can
+    // still get stuck on a GPU that hung before
+    ort = await import(`${ORT_DIR}${noGpu || !self.navigator?.gpu ? 'ort.wasm.min.mjs' : 'ort.webgpu.min.mjs'}`);
     ort.env.wasm.wasmPaths = ORT_DIR;
   }
   const bytes = await loadModelBytes(MODELS[key].url);
   post({ type: 'progress', stage: 'init', p: 0 });
   let session = null, backend = 'wasm';
-  if (self.navigator?.gpu) {
+  if (self.navigator?.gpu && !noGpu) {
+    // (Some GPUs/drivers hang here for good; the page watches for that and
+    // restarts this worker with noGpu.)
     try {
-      session = await ort.InferenceSession.create(bytes, { executionProviders: ['webgpu'] });
+      session = await ort.InferenceSession.create(bytes.slice(), { executionProviders: ['webgpu'] });
       backend = 'webgpu';
     } catch { session = null; }
   }
@@ -62,10 +66,10 @@ async function getSession(key) {
 }
 
 self.onmessage = async (e) => {
-  const { L, R, model = 'voc_ft', midi = null } = e.data;
+  const { L, R, model = 'voc_ft', midi = null, noGpu = false } = e.data;
   try {
     const cfg = MODELS[model];
-    const { session, backend } = await getSession(model);
+    const { session, backend } = await getSession(model, noGpu);
     post({ type: 'backend', backend });
     const run = async (x) => {
       const out = await session.run({ [session.inputNames[0]]: new ort.Tensor('float32', x, [1, 4, cfg.dimF, cfg.dimT]) });

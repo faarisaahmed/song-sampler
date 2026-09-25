@@ -4,161 +4,114 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>OIIA Song Sampler</title>
-  <meta name="description" content="Turn any MIDI file into an OIIA cat song." />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐈</text></svg>" />
+  <meta name="description" content="Search any song and the spinning OIIA cat sings its melody over the real music." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23ff9ad5' d='M10 8l14 12h16L54 8v30c0 12-10 20-22 20S10 50 10 38z'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </svg>
+
   <header>
-    <div class="cat" id="cat" aria-hidden="true">🐈</div>
+    <svg class="cat" id="cat" viewBox="0 0 64 64" aria-hidden="true">
+      <path fill="#ff9ad5" d="M10 8l14 12h16L54 8v30c0 12-10 20-22 20S10 50 10 38z"/>
+      <circle cx="23" cy="35" r="3.2" fill="#2a1030"/><circle cx="41" cy="35" r="3.2" fill="#2a1030"/>
+      <path d="M29 43q3 3 6 0" stroke="#2a1030" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </svg>
     <div>
       <h1>OIIA Song Sampler</h1>
-      <p class="sub">Drop in any MIDI and the spinning cat sings it: o · i · i · a</p>
+      <p class="sub">Search a song. The spinning cat sings the melody over the real music.</p>
     </div>
   </header>
 
   <main>
-    <section class="card" id="loadCard">
-      <h2>1 · Pick a song</h2>
-      <label class="drop" id="drop">
-        <input type="file" id="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden />
-        <strong>Drop a .mid file here</strong> or click to choose one
-      </label>
-      <div class="row">
-        <span class="muted">or try one:</span>
-        <button class="ghost" data-song="demo">Ode to Joy</button>
-        <button class="ghost" data-song="songs/fur-elise.mid">Für Elise</button>
-        <button class="ghost" data-song="songs/rondo-alla-turca.mid">Rondo alla Turca</button>
-        <button class="ghost" data-song="songs/the-entertainer.mid">The Entertainer</button>
-      </div>
-      <p id="songInfo" class="muted small info"></p>
-
-      <div class="songmode">
-        <h3>🔎 Search songs <span class="badge" id="songCount">human-made MIDIs</span></h3>
-        <p class="muted small">Every result is a human-made karaoke MIDI from the <a href="https://huggingface.co/datasets/asigalov61/Lyrics-MIDI-Dataset">Lyrics MIDI Dataset</a>. Songs are only listed if their melody track could be pinned down, either by the lyrics lining up with it or by a model that's at least 70% sure. The cat sings the melody and the rest of the band plays the other tracks.</p>
-        <form id="kSearch" class="row">
-          <input id="kq" type="search" placeholder="Song or artist, e.g. never gonna give you up" autocomplete="off" />
-          <button class="primary" type="submit">Search</button>
-        </form>
-        <div id="kResults" class="results"></div>
-        <p id="kStatus" class="muted small info"></p>
-
-        <details class="experimental">
-          <summary>🧪 Experimental: sing over a real recording (AI vocal removal)</summary>
-        <p class="muted small">Instead of a MIDI, this uses the actual recording. An AI model (UVR MDX-Net, 67 MB, downloaded once) removes the vocals right on your device, and the melody is guessed from the removed voice. The instrumental is real, but guessing the melody from audio is hit-and-miss. Search here uses the iTunes API (30-second previews), or you can use your own audio file.</p>
-        <form id="searchForm" class="row">
-          <input id="q" type="search" placeholder="Search a song or artist…" autocomplete="off" />
-          <button class="primary" type="submit">Search</button>
-          <label class="filebtn">or use your own audio file<input type="file" id="audioFile" accept="audio/*" hidden /></label>
-        </form>
-        <div id="results" class="results"></div>
-        <div id="smStatus" class="status hidden">
-          <span id="smText"></span>
-          <div class="progress"><div id="smBar"></div></div>
-        </div>
-        </details>
+    <section class="card" id="searchCard">
+      <form id="kSearch" class="search">
+        <svg class="icon"><use href="#i-search"/></svg>
+        <input id="kq" type="search" placeholder="Search a song or artist" autocomplete="off" aria-label="Search a song or artist" />
+        <button class="primary" type="submit">Search</button>
+      </form>
+      <div id="kResults" class="results"></div>
+      <div class="classics">
+        <span class="label">Classics</span>
+        <button class="chip" data-song="demo">Ode to Joy</button>
+        <button class="chip" data-song="songs/fur-elise.mid">Für Elise</button>
+        <button class="chip" data-song="songs/rondo-alla-turca.mid">Rondo alla Turca</button>
+        <button class="chip" data-song="songs/the-entertainer.mid">The Entertainer</button>
+        <label class="link">open a MIDI file<input type="file" id="file" accept=".mid,.midi,audio/midi,audio/x-midi" hidden /></label>
       </div>
     </section>
 
-    <section class="card hidden" id="tracksCard">
-      <h2>2 · Choose tracks</h2>
-      <div id="tracks" class="tracks"></div>
-      <div id="mixRows" class="tracks mixrows hidden"></div>
-      <div id="realBox" class="realbox hidden">
-        <div class="row">
-          <button type="button" id="realBtn" class="primary">🎤 Sing over the real recording</button>
-          <label class="filebtn" id="realFileLbl">or use your own audio file (whole song)<input type="file" id="realFile" accept="audio/*" hidden /></label>
+    <section class="card hidden" id="playerCard">
+      <div class="now">
+        <div class="now-text">
+          <div class="title" id="songTitle"></div>
+          <div class="muted small" id="songSub"></div>
         </div>
-        <p id="realHelp" class="muted small">Swaps the MIDI band for the real song: it finds the recording on iTunes (a 30-second preview), removes the vocals with an AI model on your device (67 MB, downloaded once), and lines the MIDI up with it, so the cat sings the melody over the real instrumental. For the whole song, use your own audio file.</p>
-        <div id="realStatus" class="status hidden">
-          <span id="realText"></span>
-          <div class="progress"><div id="realBar"></div></div>
-        </div>
+        <button id="wavBtn" class="ghost" disabled title="Download as WAV"><svg class="icon"><use href="#i-down"/></svg>WAV</button>
       </div>
-      <div class="options">
-        <label title="A rest this long (or longer) starts a new passage. Every passage starts with o-i and ends with a.">
-          Passage break at rests ≥
-          <input type="range" id="gap" min="0.25" max="2" step="0.25" value="0.5" />
-          <span id="gapVal">0.5</span> beats
-        </label>
-        <label>
-          Chords
-          <select id="chords">
-            <option value="all">sing every note</option>
-            <option value="top">top note only</option>
-          </select>
-        </label>
-        <label><input type="checkbox" id="vibrato" checked /> Vibrato on long notes</label>
-      </div>
-      <div class="options">
-        <span class="seg" role="radiogroup" aria-label="Pattern" title="Wild: free-flowing like the original (oiiaioiiiai…). Classic: tidy oia / oiia / oiiia words. Every passage still starts with o-i and ends with a.">
-          Pattern
-          <label><input type="radio" name="style" value="wild" checked /><span>Wild</span></label>
-          <label><input type="radio" name="style" value="classic" /><span>Classic</span></label>
-        </span>
-        <button type="button" id="reroll" title="Generate a different wild pattern">🎲 Reroll</button>
-        <span class="seg" role="radiogroup" aria-label="Note length" title="Held: each syllable lasts as long as the MIDI note. Normal: the cat says each syllable at its natural length (shorter, choppier, like the meme).">
-          Length
-          <label><input type="radio" name="length" value="held" checked /><span>Held</span></label>
-          <label><input type="radio" name="length" value="normal" /><span>Normal</span></label>
-        </span>
-        <label title="Folds every note into this many octaves, moving low notes up and high notes down, so nothing sounds too deep or too squeaky.">
-          Octave range
-          <select id="range">
-            <option value="0">full (no limit)</option>
-            <option value="1">1 octave</option>
-            <option value="2">2 octaves</option>
-            <option value="3">3 octaves</option>
-          </select>
-          <span id="rangeVal" class="mono"></span>
-        </label>
-      </div>
-    </section>
 
-    <section class="card hidden" id="playCard">
-      <h2>3 · Listen</h2>
-      <div class="row">
-        <button id="playBtn" class="primary" disabled>▶ Play</button>
-        <button id="stopBtn" disabled>■ Stop</button>
-        <button id="wavBtn" disabled>⬇ Download WAV</button>
+      <div id="status" class="status hidden">
+        <span id="statusText"></span>
+        <div class="progress"><div id="statusBar"></div></div>
+      </div>
+
+      <div class="transport">
+        <button id="playBtn" class="play" disabled aria-label="Play"><svg class="icon"><use href="#i-play" id="playIcon"/></svg></button>
+        <button id="stopBtn" class="round" disabled aria-label="Stop"><svg class="icon"><use href="#i-stop"/></svg></button>
         <span id="time" class="muted mono">0:00 / 0:00</span>
       </div>
-      <div class="progress hidden" id="progress"><div id="progressBar"></div></div>
+
       <div class="lyrics" id="lyrics"></div>
-      <div class="roll-wrap" id="rollWrap"><canvas id="roll" height="240"></canvas></div>
-      <p class="legend">
-        <span class="sw o"></span>o <span class="sw i"></span>i <span class="sw a"></span>a
-        <span class="muted">· click the roll to jump to a spot</span>
-      </p>
+      <div class="roll-wrap" id="rollWrap"><canvas id="roll" height="200"></canvas></div>
+
+      <div class="controls">
+        <label class="ctl">Cat <input type="range" id="catVol" min="0" max="150" value="100" /></label>
+        <label class="ctl" id="musicCtl">Music <input type="range" id="musicVol" min="0" max="150" value="100" /></label>
+        <span class="ctl" title="Folds every note into this many octaves around the cat's natural pitch, so nothing sounds too deep or too squeaky.">
+          Octave range
+          <span class="seg">
+            <label><input type="radio" name="range" value="1" checked /><span>1</span></label>
+            <label><input type="radio" name="range" value="2" /><span>2</span></label>
+            <label><input type="radio" name="range" value="3" /><span>3</span></label>
+            <label><input type="radio" name="range" value="0" /><span>Full</span></label>
+          </span>
+        </span>
+        <span class="ctl" title="Held: each syllable lasts the whole note. Short: the cat's natural syllable length, choppy like the meme.">
+          Length
+          <span class="seg">
+            <label><input type="radio" name="length" value="held" checked /><span>Held</span></label>
+            <label><input type="radio" name="length" value="normal" /><span>Short</span></label>
+          </span>
+        </span>
+      </div>
+
+      <div class="extras small muted">
+        <label id="melodyCtl" class="hidden">Wrong melody? Sing
+          <select id="melodySel"></select>
+        </label>
+        <label id="fullCtl" class="link hidden">Only a 30-second clip. Load the full song from an audio file<input type="file" id="fullFile" accept="audio/*" hidden /></label>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Play it live</h2>
-      <p class="muted small">Click the keys or use your keyboard (A W S E D F T G Y H U J K). Every run of presses starts o → i. After that, Wild keeps it unpredictable and Classic loops o → i → i → a. Pausing for a second starts again at o.</p>
-      <div class="keys" id="keys"></div>
-    </section>
-
-    <section class="card small muted" id="howCard">
-      <h2>How it works</h2>
-      <p><b>Syllables.</b> Notes played together count as one syllable. The song is cut into <i>passages</i> at rests, and every passage starts with <b>o&nbsp;i</b> and ends with <b>a</b>.</p>
-      <p><b>Wild</b> fills in the middle of each passage using how the real meme flows: from strings like <code>oiiaioiiiai</code> it learns which letter tends to follow which (after <i>a</i> comes <i>i</i> or <i>o</i>, <i>a</i> always follows an <i>i</i>, and so on) and makes up new passages that follow the same patterns. The generator plans ahead so every passage is guaranteed to finish on an <i>a</i>, and long notes lean toward the drawn-out "aaa". The randomness is seeded from the song itself, so it sounds the same every time you play it. 🎲 Reroll gives you a new take.</p>
-      <p><b>Classic</b> uses tidy words instead: <code>oia</code> (3 notes), <code>oiia</code> (4), <code>oiiia</code> (5), split so each word's "a" lands on a long note.</p>
-      <p><b>Pitch.</b> The three sounds come from the original OIIA cat clip. Each note is made with PSOLA pitch shifting, which rebuilds the sound one vocal cycle at a time. Pitch, length and vowel sound are all set separately, so low notes don't slow down or get muddy and high notes don't turn into squeaky chipmunks. Every note is also matched to the same loudness.</p>
-      <p><b>Length.</b> <i>Held</i> stretches each syllable to fill the whole MIDI note. <i>Normal</i> has the cat say each syllable at its natural speed (never longer than the note), so it sounds choppy like the original meme.</p>
-      <p><b>Song search.</b> The songs are human-made karaoke MIDIs from the Lyrics MIDI Dataset (Lakh MIDI, MetaMIDI and others). Each one is pulled straight out of the dataset's multi-gigabyte zip on Hugging Face with a single HTTP range request. To find the sung melody: if the file has lyrics, the track whose notes start where the syllables do is the melody. Otherwise a small neural network trained on 8,134 lyric-labeled songs picks it; it's right 85% of the time on songs it never saw, and 92% of the time when it's at least 70% sure. Only songs that are lyric-matched or ≥70% sure are listed. The other tracks are played by real sampled instruments (FluidR3 General MIDI soundfont), with synthesized drums, so everything stays perfectly in sync.</p>
-      <p><b>Tracks.</b> Every track can be 🐱 sung by the cat, 🎹 played on its instrument, or turned off, and each one has its own volume slider (so piano songs get separate right- and left-hand volume).</p>
-      <p><b>Singing over the real recording.</b> After you pick a MIDI, the real song is found on iTunes (or you give your own file), its vocals are removed by the AI model below, and the MIDI is lined up with the recording using dynamic time warping on chroma (which pitch classes are sounding). The whole MIDI is compared with the full mix, and its melody track with the melody transcribed from the removed vocals, so repeated chord loops don't fool it. The cat then sings the MIDI melody, stretched and transposed to fit the recording.</p>
-      <p><b>Real recordings (experimental).</b> The UVR-MDX-NET Voc_FT model runs in your browser with onnxruntime-web and splits a recording into vocals and instrumental, then the melody is guessed from the vocals with pitch tracking. The instrumental is real, but reading a melody out of audio is much less reliable than using a MIDI.</p>
-      <p><b>Octave range.</b> Every note gets moved up or down by whole octaves until it fits inside the range. The range is centered on the cat's own voice (about D#4), where the samples sound the most natural. Deep notes move up and very high notes move down.</p>
-    </section>
+    <details class="card small muted" id="howCard">
+      <summary>How it works</summary>
+      <p><b>Songs.</b> Search results are human-made karaoke MIDIs from the Lyrics MIDI Dataset, each pulled out of the dataset's zip on Hugging Face with a single range request. The melody track is the one that lines up with the lyrics, or, for files without lyrics, the one a small neural network picks (only songs it's at least 70% sure about are listed).</p>
+      <p><b>Background music.</b> The real recording comes from iTunes (a 30-second preview, or your own file for the whole song). An AI model (UVR MDX-Net, 67 MB, downloaded once) removes the vocals on your device. The MIDI is then lined up with the recording with dynamic time warping, comparing both the harmony and the sung melody, and moved to the recording's key.</p>
+      <p><b>Syllables.</b> The melody is cut into passages at rests. Every passage starts with <b>o&nbsp;i</b> and ends with <b>a</b>, and the middle follows how the original meme flows (<code>oiiaioiiiai</code>), with long notes leaning toward a drawn-out "aaa".</p>
+      <p><b>Pitch.</b> Each note is made from the original cat clip with PSOLA pitch shifting, so pitch changes without speeding the sound up or turning it into a chipmunk.</p>
+    </details>
   </main>
 
   <footer class="muted small">
-    Made for fun. The OIIA sound comes from the spinning-cat meme.<br />
-    Für Elise &amp; Rondo alla Turca MIDI by Bernd Krueger, <a href="http://www.piano-midi.de">piano-midi.de</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/de/deed.en">CC BY-SA 3.0 DE</a>).
-    The Entertainer MIDI from the <a href="https://github.com/Tonejs/Midi">Tonejs/Midi</a> test files.<br />
-    Song search: MIDIs from the <a href="https://huggingface.co/datasets/asigalov61/Lyrics-MIDI-Dataset">Lyrics MIDI Dataset</a> by asigalov61 (Project Los Angeles) (<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>). Instruments: <a href="https://github.com/gleitz/midi-js-soundfonts">FluidR3 GM soundfont</a> (<a href="https://creativecommons.org/licenses/by/3.0/us/">CC BY 3.0</a>).<br />
-    Real-recording mode: iTunes Search API · UVR-MDX-NET Voc_FT model from <a href="https://github.com/Anjok07/ultimatevocalremovergui">Ultimate Vocal Remover</a>, run with <a href="https://onnxruntime.ai/">onnxruntime-web</a>.
+    The OIIA sound comes from the spinning-cat meme. Songs: <a href="https://huggingface.co/datasets/asigalov61/Lyrics-MIDI-Dataset">Lyrics MIDI Dataset</a> by asigalov61 (<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>).
+    Recordings: iTunes Search API. Vocal removal: UVR-MDX-NET Voc_FT from <a href="https://github.com/Anjok07/ultimatevocalremovergui">Ultimate Vocal Remover</a>, run with <a href="https://onnxruntime.ai/">onnxruntime-web</a>.<br />
+    Für Elise &amp; Rondo alla Turca MIDI by Bernd Krueger, <a href="http://www.piano-midi.de">piano-midi.de</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/de/deed.en">CC BY-SA 3.0 DE</a>). The Entertainer MIDI from the <a href="https://github.com/Tonejs/Midi">Tonejs/Midi</a> test files.
   </footer>
 
   <script type="module" src="js/app.js"></script>

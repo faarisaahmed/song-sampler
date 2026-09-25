@@ -48,6 +48,19 @@ async function decode(arrayBuffer) {
 }
 
 let worker = null;
+const NO_GPU_KEY = 'oiia-no-webgpu';
+let pending = null; // reject() of the run in progress
+
+// Stop the run in progress (picking another song). The worker is thrown away;
+// the model stays in the browser cache, so the next run only re-initializes it.
+export function cancelProcessing() {
+  if (!pending) return;
+  worker?.terminate();
+  worker = null;
+  const reject = pending;
+  pending = null;
+  reject(Object.assign(new Error('cancelled'), { cancelled: true }));
+}
 
 /**
  * Runs the whole pipeline. `source` is { url } or { file }.
@@ -56,32 +69,57 @@ let worker = null;
  * Returns { instrumental: [L, R], vocals: [L, R], notes, align, sampleRate, backend }.
  */
 export async function processSong(source, onStatus, midi = null) {
-  onStatus('Downloading the song…', null);
+  onStatus('Downloading the recording…', null);
   const bytes = source.file ? await source.file.arrayBuffer() : await (await fetch(source.url)).arrayBuffer();
   onStatus('Decoding audio…', null);
   const { L, R } = await decode(bytes);
 
-  worker ??= new Worker(new URL('./sep-worker.js', import.meta.url), { type: 'module' });
+  cancelProcessing();
   const mins = L.length / SR / 60;
   return new Promise((resolve, reject) => {
+    pending = reject;
     let backend = '';
-    worker.onmessage = (e) => {
-      const m = e.data;
-      if (m.type === 'progress') {
-        if (m.stage === 'download') onStatus(m.cached ? 'Loading the vocal-removal model…' : `Downloading the vocal-removal model (${MODELS[MODEL].sizeMB} MB, only the first time)…`, m.p);
-        else if (m.stage === 'init') onStatus('Starting the model…', null);
-        else if (m.stage === 'separate') onStatus(`Separating vocals from the music${backend === 'wasm' ? ` (no WebGPU here, so this is slower: ~${Math.max(1, Math.round(mins * 3))} min)` : ''}…`, m.p);
-        else if (m.stage === 'melody') onStatus('Reading the sung melody…', null);
-        else if (m.stage === 'align') onStatus('Lining the MIDI up with the recording…', null);
-      } else if (m.type === 'backend') {
-        backend = m.backend;
-      } else if (m.type === 'done') {
-        resolve({ instrumental: m.instrumental, vocals: m.vocals, notes: m.notes, align: m.align, sampleRate: SR, backend: m.backend });
-      } else if (m.type === 'error') {
-        reject(new Error(m.message));
-      }
+    const start = (L, R, noGpu) => {
+      worker ??= new Worker(new URL('./sep-worker.js', import.meta.url), { type: 'module' });
+      // Some GPUs/drivers hang forever setting up WebGPU, freezing the worker.
+      // Keep a copy of the audio; if the model isn't up in time, start over on the CPU.
+      const copy = noGpu ? null : [L.slice(), R.slice()];
+      let watchdog = 0;
+      const me = worker;
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'progress') {
+          if (m.stage === 'download') onStatus(m.cached ? 'Loading the vocal-removal model…' : `Downloading the vocal-removal model (${MODELS[MODEL].sizeMB} MB, only the first time)…`, m.p);
+          else if (m.stage === 'init') {
+            onStatus('Starting the model…', null);
+            if (copy) watchdog = setTimeout(() => {
+              if (worker !== me || !pending) return;
+              try { sessionStorage.setItem(NO_GPU_KEY, '1'); } catch {}
+              worker.terminate();
+              worker = null;
+              start(copy[0], copy[1], true);
+            }, 25000);
+          }
+          else if (m.stage === 'separate') onStatus(`Removing the vocals${backend === 'wasm' ? ` (no GPU acceleration here, so this takes ~${Math.max(2, Math.ceil(mins * 4))} min)` : ''}…`, m.p);
+          else if (m.stage === 'melody') onStatus('Reading the sung melody…', null);
+          else if (m.stage === 'align') onStatus('Lining the melody up with the music…', null);
+        } else if (m.type === 'backend') {
+          backend = m.backend;
+          clearTimeout(watchdog);
+        } else if (m.type === 'done') {
+          pending = null;
+          resolve({ instrumental: m.instrumental, vocals: m.vocals, notes: m.notes, align: m.align, sampleRate: SR, backend: m.backend });
+        } else if (m.type === 'error') {
+          clearTimeout(watchdog);
+          pending = null;
+          reject(new Error(m.message));
+        }
+      };
+      worker.onerror = (e) => (pending = null, reject(new Error(e.message || 'Worker failed to start')));
+      worker.postMessage({ L, R, model: MODEL, midi, noGpu }, [L.buffer, R.buffer]);
     };
-    worker.onerror = (e) => reject(new Error(e.message || 'Worker failed to start'));
-    worker.postMessage({ L, R, model: MODEL, midi }, [L.buffer, R.buffer]);
+    let noGpu = false;
+    try { noGpu = sessionStorage.getItem(NO_GPU_KEY) === '1'; } catch {}
+    start(L, R, noGpu);
   });
 }
